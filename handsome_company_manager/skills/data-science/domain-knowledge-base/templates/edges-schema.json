@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/kb/edges.schema.json",
+  "title": "Knowledge Base Edge",
+  "description": "A relationship between two concept nodes. Battle-tested.",
+  "type": "object",
+  "required": ["from", "to", "type"],
+  "additionalProperties": false,
+  "properties": {
+    "from": {
+      "type": "string",
+      "pattern": "^[a-z]+\\.g[1-9][0-9]?\\."
+    },
+    "to": {
+      "type": "string",
+      "pattern": "^[a-z]+\\.g[1-9][0-9]?\\."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["prerequisite", "part_of", "related", "teaches", "assesses"],
+      "description": "prerequisite = A must be learned before B; part_of = A is a sub-concept of B; related = same theme, no order; teaches = lesson teaches concept; assesses = exercise tests concept"
+    },
+    "strength": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Optional. 1.0 = strong, 0.5 = weak. Use for ranking multiple prereqs."
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "Optional short note on why this edge exists."
+    }
+  }
+}

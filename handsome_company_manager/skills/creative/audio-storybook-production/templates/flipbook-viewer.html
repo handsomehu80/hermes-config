@@ -1,0 +1,411 @@
+<!--
+  Audio Storybook HTML Viewer — drop-in template
+
+  Build step (Python):
+      entries_json = json.dumps([...entries...], ensure_ascii=False)
+      html = open('flipbook-viewer.html.template', encoding='utf-8').read()
+      out = html.replace('__ENTRIES_JSON__', entries_json)
+      open('audio/flipbook.html', 'w', encoding='utf-8').write(out)
+
+  Entry shape:
+      {
+        "idx":    1,                          // 1-based
+        "date":   "3月6日",
+        "theme":  "探秘红色火星",
+        "text":   "今天是 2026 年 3 月 6 日。……",   // the body text shown to the reader
+        "image":  "../images/page04_img1.jpeg",    // relative to audio/ folder
+        "audio":  "./mixed/01_3月6日_xxx.mp3"      // relative to audio/ folder
+      }
+
+  Features wired:
+    - First-run gesture gate (iOS Safari audio.play() requires user gesture)
+    - Touch: tap left = prev, right = next; swipe supported
+    - Keyboard: ← → for nav, space for play/pause, Esc for TOC
+    - TOC overlay with thumbnail grid + current page highlight
+    - Auto-play toggle (default ON after first gesture)
+    - Follows prefers-color-scheme (dark mode for bedtime reading)
+    - Mobile-portrait stacks image+text; landscape ≥720px puts them side-by-side
+-->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2A2D43">
+<title>有声翻页绘本</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg-1:#FFF8F0; --bg-2:#FFE8D6; --card:#FFFFFF;
+    --ink:#2C2C2C; --ink-soft:#6B6B6B;
+    --accent:#FF8B6A; --accent-2:#FF6F50;
+    --gold:#FFB347; --shadow:0 10px 30px rgba(80,40,20,.12);
+    --safe-t:env(safe-area-inset-top,0px);
+    --safe-b:env(safe-area-inset-bottom,0px);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg-1:#1A1B2E; --bg-2:#2A2D43; --card:#232542;
+      --ink:#F5F5F7; --ink-soft:#A8A8B8;
+      --accent:#FFD56B; --accent-2:#FFC03A;
+      --shadow:0 10px 30px rgba(0,0,0,.4);
+    }
+  }
+  html,body{height:100%;overflow:hidden}
+  body{
+    font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+    color:var(--ink);
+    background:linear-gradient(160deg,var(--bg-1),var(--bg-2));
+    -webkit-tap-highlight-color:transparent;
+    overscroll-behavior:none;
+    user-select:none;
+    -webkit-user-select:none;
+  }
+  .app{
+    position:fixed;inset:0;
+    display:grid;
+    grid-template-rows:auto 1fr auto;
+    padding:calc(var(--safe-t) + 10px) 12px calc(var(--safe-b) + 10px);
+  }
+  .topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:6px 10px;font-size:13px;color:var(--ink-soft);
+  }
+  .topbar .date{font-weight:600;color:var(--ink);letter-spacing:.5px}
+  .topbar .ctr{background:rgba(0,0,0,.06);padding:4px 10px;border-radius:99px;font-variant-numeric:tabular-nums}
+  @media (prefers-color-scheme: dark){.topbar .ctr{background:rgba(255,255,255,.08)}}
+  .topbar button.icon{
+    background:none;border:none;color:var(--ink-soft);font-size:20px;
+    width:36px;height:36px;border-radius:50%;cursor:pointer;
+  }
+  .topbar button.icon:active{background:rgba(0,0,0,.08)}
+  .stage{
+    position:relative;overflow:hidden;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:12px;
+  }
+  .img-wrap{
+    position:relative;
+    width:min(96vw,560px);
+    aspect-ratio:4/3;
+    background:var(--card);
+    border-radius:18px;
+    box-shadow:var(--shadow);
+    overflow:hidden;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .img-wrap img{
+    width:100%;height:100%;object-fit:contain;
+    opacity:0;transition:opacity .35s ease;
+    background:#f5f5f5;
+  }
+  .img-wrap img.loaded{opacity:1}
+  .img-wrap .spinner{
+    position:absolute;inset:0;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--ink-soft);font-size:14px;
+  }
+  .img-wrap .spinner.hidden{display:none}
+  .tapzone{position:absolute;top:0;bottom:0;width:30%;z-index:5;}
+  .tapzone.l{left:0} .tapzone.r{right:0}
+  .text-panel{
+    width:min(96vw,560px);
+    background:var(--card);
+    border-radius:14px;
+    padding:12px 14px;
+    box-shadow:0 4px 14px rgba(80,40,20,.06);
+    max-height:24vh;overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    line-height:1.7;font-size:15px;color:var(--ink);
+  }
+  .text-panel::-webkit-scrollbar{width:4px}
+  .text-panel::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:2px}
+  .theme{
+    font-weight:700;font-size:16px;
+    color:var(--accent-2);margin-bottom:6px;
+    display:flex;align-items:center;gap:6px;
+  }
+  .theme::before{content:"✦";color:var(--accent)}
+  .botbar{
+    display:flex;flex-direction:column;gap:8px;
+    padding:8px 10px 4px;
+  }
+  .nav{
+    display:flex;align-items:center;justify-content:center;gap:14px;
+  }
+  .btn{
+    border:none;border-radius:99px;
+    padding:12px 22px;font-size:15px;font-weight:600;
+    background:var(--card);color:var(--ink);
+    box-shadow:0 4px 12px rgba(0,0,0,.08);
+    cursor:pointer;transition:transform .15s;
+    min-width:80px;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .btn:active{transform:scale(.96)}
+  .btn.primary{background:var(--accent);color:#fff;min-width:120px}
+  .btn.primary:active{background:var(--accent-2)}
+  .btn.ghost{background:transparent;box-shadow:none;color:var(--ink-soft);min-width:auto;padding:10px 14px}
+  .btn:disabled{opacity:.35;cursor:default}
+  .progress{
+    display:flex;align-items:center;gap:10px;
+    font-size:12px;color:var(--ink-soft);font-variant-numeric:tabular-nums;
+  }
+  .progress .bar{
+    flex:1;height:4px;background:rgba(0,0,0,.08);border-radius:2px;
+    overflow:hidden;cursor:pointer;
+  }
+  @media (prefers-color-scheme: dark){.progress .bar{background:rgba(255,255,255,.12)}}
+  .progress .fill{height:100%;background:var(--accent);width:0%;transition:width .2s linear}
+  .toc{
+    position:fixed;inset:0;background:rgba(0,0,0,.5);
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+    z-index:50;display:none;
+    padding:calc(var(--safe-t) + 16px) 14px calc(var(--safe-b) + 16px);
+  }
+  .toc.open{display:flex;flex-direction:column}
+  .toc-inner{
+    background:var(--card);border-radius:18px;padding:14px;
+    margin:auto;width:min(96vw,640px);max-height:85vh;
+    display:flex;flex-direction:column;gap:10px;
+    box-shadow:var(--shadow);
+  }
+  .toc-head{display:flex;justify-content:space-between;align-items:center}
+  .toc-head h3{font-size:16px}
+  .toc-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
+    gap:10px;overflow-y:auto;padding:4px;
+  }
+  .toc-item{
+    background:var(--bg-1);border-radius:10px;padding:8px;
+    cursor:pointer;border:2px solid transparent;
+    text-align:left;display:flex;flex-direction:column;gap:4px;
+    transition:transform .15s,border-color .15s;
+  }
+  .toc-item:active{transform:scale(.96)}
+  .toc-item.cur{border-color:var(--accent)}
+  .toc-item .ti{font-size:11px;color:var(--ink-soft)}
+  .toc-item .tt{font-size:13px;font-weight:600;color:var(--ink);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .toc-item .ti-img{
+    width:100%;aspect-ratio:4/3;border-radius:6px;
+    background:#eee center/cover no-repeat;
+    margin-bottom:2px;
+  }
+  .gate{
+    position:fixed;inset:0;z-index:100;
+    background:linear-gradient(160deg,var(--bg-1),var(--bg-2));
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:18px;text-align:center;padding:24px;
+  }
+  .gate.hidden{display:none}
+  .gate h1{font-size:26px;color:var(--ink)}
+  .gate p{color:var(--ink-soft);font-size:14px;max-width:320px;line-height:1.7}
+  .gate .big{
+    background:var(--accent);color:#fff;border:none;
+    padding:16px 32px;border-radius:99px;font-size:17px;font-weight:700;
+    box-shadow:0 8px 20px rgba(255,139,106,.4);cursor:pointer;
+  }
+  .stage.fade .img-wrap img,.stage.fade .theme,.stage.fade .text-panel{opacity:0;transition:opacity .2s}
+  .settings{display:flex;align-items:center;justify-content:center;gap:12px;font-size:13px;color:var(--ink-soft)}
+  .switch{position:relative;width:38px;height:22px;background:rgba(0,0,0,.18);border-radius:99px;cursor:pointer;transition:background .2s}
+  .switch.on{background:var(--accent)}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+  .switch.on::after{transform:translateX(16px)}
+  @media (min-width:720px) and (orientation:landscape){
+    .stage{flex-direction:row;align-items:stretch;gap:18px}
+    .img-wrap{flex:0 0 56%;aspect-ratio:auto;height:100%}
+    .img-wrap img{object-fit:contain}
+    .text-panel{flex:1;max-height:none;height:100%}
+  }
+</style>
+</head>
+<body>
+
+<div class="gate" id="gate">
+  <div style="font-size:54px">📖</div>
+  <h1>有声翻页绘本</h1>
+  <p>每页配一段朗读 + 背景音乐。点下面的按钮开始(手机浏览器要先点一下才能播放声音哦)。</p>
+  <button class="big" id="gateBtn">▶ 开始听故事</button>
+</div>
+
+<div class="app">
+  <div class="topbar">
+    <button class="icon" id="tocBtn" aria-label="目录">☰</button>
+    <span class="date" id="dateLabel">—</span>
+    <span class="ctr" id="ctrLabel">1 / 1</span>
+  </div>
+  <div class="stage" id="stage">
+    <div class="img-wrap">
+      <img id="img" alt="">
+      <div class="spinner" id="spinner">加载中…</div>
+    </div>
+    <div class="text-panel">
+      <div class="theme" id="themeLabel">—</div>
+      <div id="textLabel">—</div>
+    </div>
+    <div class="tapzone l" id="tzL"></div>
+    <div class="tapzone r" id="tzR"></div>
+  </div>
+  <div class="botbar">
+    <div class="progress">
+      <span id="curTime">0:00</span>
+      <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+      <span id="durTime">0:00</span>
+    </div>
+    <div class="nav">
+      <button class="btn ghost" id="prevBtn">‹ 上一页</button>
+      <button class="btn primary" id="playBtn">▶ 播放</button>
+      <button class="btn ghost" id="nextBtn">下一页 ›</button>
+    </div>
+    <div class="settings">
+      <span>翻页自动播放</span>
+      <div class="switch on" id="autoSwitch"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toc" id="toc">
+  <div class="toc-inner">
+    <div class="toc-head">
+      <h3>📚 目录</h3>
+      <button class="btn ghost" id="tocClose">关闭</button>
+    </div>
+    <div class="toc-grid" id="tocGrid"></div>
+  </div>
+</div>
+
+<audio id="audio" preload="auto"></audio>
+
+<script>
+const ENTRIES = __ENTRIES_JSON__;
+const TOTAL = ENTRIES.length;
+let cur = 0;
+let autoPlay = true;
+let userGestureDone = false;
+
+const $ = id => document.getElementById(id);
+const img = $('img'), spinner = $('spinner');
+const dateLabel = $('dateLabel'), ctrLabel = $('ctrLabel');
+const themeLabel = $('themeLabel'), textLabel = $('textLabel');
+const audio = $('audio'), playBtn = $('playBtn');
+const prevBtn = $('prevBtn'), nextBtn = $('nextBtn');
+const toc = $('toc'), tocGrid = $('tocGrid');
+const stage = $('stage'), bar = $('bar'), fill = $('fill');
+const curTime = $('curTime'), durTime = $('durTime');
+const autoSwitch = $('autoSwitch');
+const gate = $('gate'), gateBtn = $('gateBtn');
+
+const fmt = s => { s=Math.max(0,Math.floor(s||0)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); };
+
+function render(){
+  const e = ENTRIES[cur];
+  stage.classList.add('fade');
+  setTimeout(()=>{
+    dateLabel.textContent = e.date;
+    ctrLabel.textContent = (cur+1)+' / '+TOTAL;
+    themeLabel.textContent = e.theme;
+    textLabel.textContent = e.text;
+    img.classList.remove('loaded');
+    spinner.classList.remove('hidden');
+    img.src = e.image;
+    audio.src = e.audio;
+    fill.style.width='0%';
+    curTime.textContent='0:00';
+    durTime.textContent='0:00';
+    audio.load();
+    [...tocGrid.children].forEach((c,i)=>c.classList.toggle('cur', i===cur));
+    stage.classList.remove('fade');
+  },180);
+}
+
+img.addEventListener('load', ()=>{ img.classList.add('loaded'); spinner.classList.add('hidden'); });
+img.addEventListener('error', ()=>{ spinner.textContent='图片加载失败'; });
+
+audio.addEventListener('loadedmetadata', ()=>{ durTime.textContent = fmt(audio.duration); });
+audio.addEventListener('timeupdate', ()=>{
+  fill.style.width = audio.duration ? (audio.currentTime/audio.duration*100)+'%' : '0%';
+  curTime.textContent = fmt(audio.currentTime);
+});
+audio.addEventListener('ended', ()=>{ playBtn.textContent='▶ 重播'; });
+audio.addEventListener('play', ()=>{ playBtn.textContent='⏸ 暂停'; });
+audio.addEventListener('pause', ()=>{ if(audio.currentTime && audio.currentTime<audio.duration) playBtn.textContent='▶ 继续'; else playBtn.textContent='▶ 播放'; });
+
+function play(){
+  if(!userGestureDone){ gate.classList.remove('hidden'); return; }
+  audio.play().catch(err=>{
+    playBtn.textContent='▶ 播放';
+    console.warn('audio play failed',err);
+  });
+}
+function pause(){ audio.pause(); }
+
+playBtn.addEventListener('click', ()=>{ audio.paused ? play() : pause(); });
+prevBtn.addEventListener('click', ()=>{ if(cur>0){ cur--; render(); if(autoPlay && userGestureDone) play(); }});
+nextBtn.addEventListener('click', ()=>{ if(cur<TOTAL-1){ cur++; render(); if(autoPlay && userGestureDone) play(); }});
+
+$('tzL').addEventListener('click', ()=> prevBtn.click());
+$('tzR').addEventListener('click', ()=> nextBtn.click());
+
+document.addEventListener('keydown', e=>{
+  if(toc.classList.contains('open')){ if(e.key==='Escape') toc.classList.remove('open'); return; }
+  if(e.key==='ArrowLeft') prevBtn.click();
+  else if(e.key==='ArrowRight') nextBtn.click();
+  else if(e.key===' ') { e.preventDefault(); playBtn.click(); }
+  else if(e.key==='Escape') openToc();
+});
+
+let tx=0, ty=0;
+document.addEventListener('touchstart', e=>{ tx=e.touches[0].clientX; ty=e.touches[0].clientY; }, {passive:true});
+document.addEventListener('touchend', e=>{
+  const dx = e.changedTouches[0].clientX - tx;
+  const dy = e.changedTouches[0].clientY - ty;
+  if(Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)*1.5){
+    if(dx<0) nextBtn.click(); else prevBtn.click();
+  }
+}, {passive:true});
+
+bar.addEventListener('click', e=>{
+  if(!audio.duration) return;
+  const r = bar.getBoundingClientRect();
+  audio.currentTime = ((e.clientX - r.left)/r.width) * audio.duration;
+});
+
+autoSwitch.addEventListener('click', ()=>{
+  autoPlay = !autoPlay;
+  autoSwitch.classList.toggle('on', autoPlay);
+});
+
+function buildToc(){
+  tocGrid.innerHTML='';
+  ENTRIES.forEach((e,i)=>{
+    const d = document.createElement('div');
+    d.className='toc-item'+(i===cur?' cur':'');
+    d.innerHTML = `
+      <div class="ti-img" style="background-image:url('${e.image}')"></div>
+      <div class="ti">${e.date} · ${String(i+1).padStart(2,'0')}</div>
+      <div class="tt">${e.theme}</div>`;
+    d.addEventListener('click', ()=>{ cur=i; render(); toc.classList.remove('open'); if(autoPlay && userGestureDone) play(); });
+    tocGrid.appendChild(d);
+  });
+}
+function openToc(){ buildToc(); toc.classList.add('open'); }
+$('tocBtn').addEventListener('click', openToc);
+$('tocClose').addEventListener('click', ()=>toc.classList.remove('open'));
+toc.addEventListener('click', e=>{ if(e.target===toc) toc.classList.remove('open'); });
+
+gateBtn.addEventListener('click', ()=>{
+  userGestureDone = true;
+  gate.classList.add('hidden');
+  audio.src = ENTRIES[cur].audio;
+  audio.load();
+  play();
+});
+
+render();
+</script>
+</body>
+</html>

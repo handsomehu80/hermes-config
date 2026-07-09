@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Anime Festival Scene — 二次元节日场景模板
+  ============================================
+  A reusable 二次元 (anime-style) scene template featuring a cute girl
+  character in front of a traditional festival background. Hand-coded
+  SVG, no external assets, no fonts beyond the CJK fallback chain.
+
+  To adapt for a different festival / season:
+    1. Change the background palette (sky + water gradient stops)
+    2. Swap the central held object (zongzi, mooncake, tangyuan, etc.)
+    3. Replace the dragon boat with a festival-specific background prop
+    4. Update title text and subtitle
+    5. Adjust the side decorations (left/right plant types)
+
+  Style rules that make it read as 二次元:
+    - Eye height ≥ 25% of face height
+    - Big sparkles (large upper-left + small lower-right)
+    - Blush cheeks as radial gradients
+    - Egg-shaped face, hair covering ears
+    - Flat colors, no harsh shadows
+    - 2-3 dominant hues in the palette
+
+  Render: view in any modern browser. To convert to PNG, see
+  references/browser-svg-to-png.md in this skill.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="1200" height="900">
+  <title>二次元节日场景模板</title>
+
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE5EC"/>
+      <stop offset="55%" stop-color="#FFD1DC"/>
+      <stop offset="100%" stop-color="#FFB7C5"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#A8DADC"/>
+      <stop offset="100%" stop-color="#7FB3D5"/>
+    </linearGradient>
+    <linearGradient id="hair" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2C1810"/>
+      <stop offset="100%" stop-color="#3D2817"/>
+    </linearGradient>
+    <linearGradient id="dress" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E63946"/>
+      <stop offset="100%" stop-color="#C1121F"/>
+    </linearGradient>
+    <linearGradient id="zongzi-leaf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7CB342"/>
+      <stop offset="100%" stop-color="#558B2F"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#FFF3B0"/>
+      <stop offset="70%" stop-color="#FFD89B" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#FFD89B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="cheek" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#FF8FAB" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#FF8FAB" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- BACKGROUND -->
+  <rect width="1200" height="900" fill="url(#sky)"/>
+  <circle cx="980" cy="180" r="180" fill="url(#sun)"/>
+  <circle cx="980" cy="180" r="60" fill="#FFEFB7" opacity="0.9"/>
+
+  <g opacity="0.85">
+    <ellipse cx="200" cy="150" rx="80" ry="22" fill="#FFFFFF"/>
+    <ellipse cx="240" cy="140" rx="55" ry="20" fill="#FFFFFF"/>
+    <ellipse cx="160" cy="160" rx="40" ry="16" fill="#FFFFFF"/>
+    <ellipse cx="780" cy="100" rx="70" ry="18" fill="#FFFFFF"/>
+    <ellipse cx="820" cy="92" rx="45" ry="15" fill="#FFFFFF"/>
+  </g>
+
+  <g fill="#FFB7C5" opacity="0.7">
+    <path d="M 150 250 q 8 -8 16 0 q -8 8 -16 0"/>
+    <path d="M 350 90 q 8 -8 16 0 q -8 8 -16 0"/>
+    <path d="M 600 130 q 8 -8 16 0 q -8 8 -16 0"/>
+    <path d="M 1050 280 q 8 -8 16 0 q -8 8 -16 0"/>
+  </g>
+
+  <path d="M 0 620 L 150 540 L 280 590 L 420 520 L 560 580 L 700 530 L 850 590 L 1000 540 L 1200 600 L 1200 660 L 0 660 Z" fill="#B8A9C9" opacity="0.5"/>
+  <path d="M 0 650 L 120 590 L 250 620 L 400 570 L 550 615 L 700 580 L 880 625 L 1050 585 L 1200 630 L 1200 670 L 0 670 Z" fill="#9B89B3" opacity="0.6"/>
+
+  <rect y="660" width="1200" height="240" fill="url(#water)"/>
+  <g stroke="#FFFFFF" stroke-width="2" fill="none" opacity="0.6">
+    <path d="M 50 720 Q 150 715 250 720 T 450 720"/>
+    <path d="M 550 750 Q 650 745 750 750 T 950 750"/>
+    <path d="M 200 790 Q 300 785 400 790 T 600 790"/>
+    <path d="M 700 820 Q 800 815 900 820 T 1100 820"/>
+  </g>
+
+  <!-- FESTIVAL PROP (background) — swap per festival -->
+  <g transform="translate(120,640)">
+    <path d="M 0 0 Q 150 -8 380 0 L 360 30 Q 200 38 20 30 Z" fill="#C1121F"/>
+    <path d="M 0 0 Q 150 -8 380 0" stroke="#FFD700" stroke-width="2" fill="none"/>
+    <g transform="translate(380,-2)">
+      <path d="M 0 0 Q 30 -25 60 -10 L 55 15 Q 30 25 5 18 Z" fill="#FFD700"/>
+      <circle cx="42" cy="-5" r="4" fill="#E63946"/>
+      <path d="M 60 -10 Q 75 -15 80 -5 Q 70 5 55 15" fill="#FF6B35"/>
+    </g>
+    <g fill="#1D3557">
+      <ellipse cx="80" cy="-10" rx="8" ry="10"/>
+      <ellipse cx="120" cy="-10" rx="8" ry="10"/>
+      <ellipse cx="160" cy="-10" rx="8" ry="10"/>
+      <ellipse cx="200" cy="-10" rx="8" ry="10"/>
+      <ellipse cx="240" cy="-10" rx="8" ry="10"/>
+      <ellipse cx="280" cy="-10" rx="8" ry="10"/>
+      <ellipse cx="320" cy="-10" rx="8" ry="10"/>
+    </g>
+  </g>
+
+  <!-- CHARACTER (二次元少女) — whole group on a translate so you can move her -->
+  <g transform="translate(600,450)">
+    <path d="M -160 -180 Q -200 -100 -180 50 Q -200 130 -150 200 L -90 200 Q -110 100 -100 30 Q -90 -120 -100 -180 Z" fill="url(#hair)"/>
+    <path d="M 160 -180 Q 200 -100 180 50 Q 200 130 150 200 L 90 200 Q 110 100 100 30 Q 90 -120 100 -180 Z" fill="url(#hair)"/>
+
+    <g transform="translate(-100,-180)">
+      <path d="M 0 0 Q -20 -15 -30 -5 L -25 15 Q -15 20 -5 10 Q 10 20 20 10 L 15 -5 Q 5 -15 0 0 Z" fill="#E63946"/>
+      <circle cx="-5" cy="5" r="5" fill="#FFD700"/>
+    </g>
+
+    <rect x="-22" y="55" width="44" height="30" fill="#FFE0D0"/>
+    <ellipse cx="0" cy="0" rx="100" ry="115" fill="#FFE8DC"/>
+    <ellipse cx="-3" cy="10" rx="92" ry="100" fill="#FFE0D0" opacity="0.4"/>
+
+    <path d="M -100 -50 Q -90 -100 -50 -110 Q 0 -125 50 -110 Q 90 -100 100 -50 L 95 -30 Q 60 -50 30 -40 Q 0 -30 -30 -40 Q -60 -50 -95 -30 Z" fill="url(#hair)"/>
+    <path d="M -100 -50 Q -110 -20 -100 20 Q -90 -10 -85 -40 Z" fill="url(#hair)"/>
+    <path d="M 100 -50 Q 110 -20 100 20 Q 90 -10 85 -40 Z" fill="url(#hair)"/>
+
+    <ellipse cx="-95" cy="5" rx="10" ry="18" fill="#FFE8DC"/>
+    <ellipse cx="95" cy="5" rx="10" ry="18" fill="#FFE8DC"/>
+
+    <ellipse cx="-50" cy="30" rx="22" ry="14" fill="url(#cheek)"/>
+    <ellipse cx="50" cy="30" rx="22" ry="14" fill="url(#cheek)"/>
+
+    <!-- BIG EYES -->
+    <g>
+      <ellipse cx="-38" cy="-10" rx="22" ry="32" fill="#FFFFFF"/>
+      <ellipse cx="-38" cy="-5" rx="20" ry="28" fill="#E63946"/>
+      <ellipse cx="-38" cy="-5" rx="16" ry="24" fill="#C1121F"/>
+      <ellipse cx="-38" cy="0" rx="12" ry="18" fill="#7B1F1F"/>
+      <ellipse cx="-38" cy="0" rx="6" ry="12" fill="#2C0A0A"/>
+      <ellipse cx="-44" cy="-15" rx="6" ry="9" fill="#FFFFFF"/>
+      <ellipse cx="-32" cy="5" rx="3" ry="5" fill="#FFFFFF"/>
+      <ellipse cx="-38" cy="18" rx="8" ry="4" fill="#FFFFFF" opacity="0.6"/>
+      <path d="M -60 -30 Q -38 -45 -16 -30" stroke="#1A0A0A" stroke-width="4" fill="none" stroke-linecap="round"/>
+    </g>
+    <g>
+      <ellipse cx="38" cy="-10" rx="22" ry="32" fill="#FFFFFF"/>
+      <ellipse cx="38" cy="-5" rx="20" ry="28" fill="#E63946"/>
+      <ellipse cx="38" cy="-5" rx="16" ry="24" fill="#C1121F"/>
+      <ellipse cx="38" cy="0" rx="12" ry="18" fill="#7B1F1F"/>
+      <ellipse cx="38" cy="0" rx="6" ry="12" fill="#2C0A0A"/>
+      <ellipse cx="32" cy="-15" rx="6" ry="9" fill="#FFFFFF"/>
+      <ellipse cx="44" cy="5" rx="3" ry="5" fill="#FFFFFF"/>
+      <ellipse cx="38" cy="18" rx="8" ry="4" fill="#FFFFFF" opacity="0.6"/>
+      <path d="M 16 -30 Q 38 -45 60 -30" stroke="#1A0A0A" stroke-width="4" fill="none" stroke-linecap="round"/>
+    </g>
+
+    <path d="M -55 -50 Q -40 -56 -22 -48" stroke="#2C0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M 22 -48 Q 40 -56 55 -50" stroke="#2C0A0A" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+    <path d="M 0 15 Q -3 22 0 25" stroke="#E8B4A0" stroke-width="2" fill="none" stroke-linecap="round"/>
+    <path d="M -10 45 Q 0 55 10 45" stroke="#C1121F" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+    <path d="M -90 80 Q -110 130 -120 200 L -130 280 L 130 280 L 120 200 Q 110 130 90 80 Q 60 100 30 95 Q 0 100 -30 95 Q -60 100 -90 80 Z" fill="url(#dress)"/>
+    <path d="M -130 280 L 130 280 L 120 295 L -120 295 Z" fill="#FFD700"/>
+    <path d="M -30 80 L 0 110 L 30 80 L 25 75 L 0 95 L -25 75 Z" fill="#FFD700"/>
+
+    <path d="M -90 90 Q -120 130 -100 180 Q -80 200 -50 195" stroke="#FFE8DC" stroke-width="22" fill="none" stroke-linecap="round"/>
+    <path d="M 90 90 Q 120 130 100 180 Q 80 200 50 195" stroke="#FFE8DC" stroke-width="22" fill="none" stroke-linecap="round"/>
+    <ellipse cx="-50" cy="200" rx="14" ry="12" fill="#FFE0D0"/>
+    <ellipse cx="50" cy="200" rx="14" ry="12" fill="#FFE0D0"/>
+
+    <!-- HELD OBJECT — swap per festival -->
+    <g transform="translate(0,210)">
+      <path d="M -50 0 L 0 -50 L 50 0 L 0 50 Z" fill="url(#zongzi-leaf)"/>
+      <path d="M -50 0 L 0 -50 L 50 0" stroke="#9CCC65" stroke-width="2" fill="none" opacity="0.6"/>
+      <path d="M -45 -10 Q 0 5 45 -10" stroke="#D4A574" stroke-width="2.5" fill="none"/>
+      <path d="M -45 10 Q 0 -5 45 10" stroke="#D4A574" stroke-width="2.5" fill="none"/>
+      <path d="M 0 -50 L 0 50" stroke="#D4A574" stroke-width="2"/>
+      <circle cx="-15" cy="5" r="2" fill="#1A0A0A"/>
+      <circle cx="15" cy="5" r="2" fill="#1A0A0A"/>
+      <path d="M -8 12 Q 0 18 8 12" stroke="#1A0A0A" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <ellipse cx="-22" cy="13" rx="5" ry="3" fill="#FF8FAB" opacity="0.6"/>
+      <ellipse cx="22" cy="13" rx="5" ry="3" fill="#FF8FAB" opacity="0.6"/>
+    </g>
+  </g>
+
+  <!-- FOREGROUND DECORATIONS — left/right plants per festival -->
+  <g transform="translate(80,800)">
+    <g stroke="#558B2F" stroke-width="3" fill="none">
+      <path d="M 0 0 Q -5 -80 -15 -150"/>
+      <path d="M 0 0 Q 5 -90 10 -160"/>
+    </g>
+    <g fill="#7CB342">
+      <ellipse cx="-15" cy="-150" rx="6" ry="14" transform="rotate(-30 -15 -150)"/>
+      <ellipse cx="10" cy="-160" rx="6" ry="14" transform="rotate(20 10 -160)"/>
+      <ellipse cx="5" cy="-130" rx="6" ry="14"/>
+    </g>
+  </g>
+
+  <g transform="translate(1100,820)">
+    <g stroke="#388E3C" stroke-width="3" fill="none" stroke-linecap="round">
+      <path d="M 0 0 L 0 -180"/>
+    </g>
+    <g fill="#81C784">
+      <ellipse cx="0" cy="-180" rx="8" ry="20"/>
+      <ellipse cx="-10" cy="-130" rx="6" ry="14" transform="rotate(-30 -10 -130)"/>
+      <ellipse cx="10" cy="-150" rx="6" ry="14" transform="rotate(30 10 -150)"/>
+    </g>
+  </g>
+
+  <g fill="#FFFFFF" opacity="0.9">
+    <path d="M 250 200 L 254 210 L 264 214 L 254 218 L 250 228 L 246 218 L 236 214 L 246 210 Z"/>
+    <path d="M 950 380 L 954 390 L 964 394 L 954 398 L 950 408 L 946 398 L 936 394 L 946 390 Z"/>
+  </g>
+  <g fill="#FFD700" opacity="0.8">
+    <path d="M 350 300 L 352 306 L 358 308 L 352 310 L 350 316 L 348 310 L 342 308 L 348 306 Z"/>
+  </g>
+
+  <!-- TITLE — replace with festival greeting -->
+  <g transform="translate(600,90)">
+    <text x="3" y="3" text-anchor="middle" font-family="'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="78" font-weight="900" fill="#8B0000" opacity="0.4">节日名</text>
+    <text x="0" y="0" text-anchor="middle" font-family="'Microsoft YaHei', 'PingFang SC', 'Noto Sans CJK SC', sans-serif" font-size="78" font-weight="900" fill="#C1121F" stroke="#FFD700" stroke-width="3" paint-order="stroke">节日名</text>
+  </g>
+
+  <text x="600" y="850" text-anchor="middle" font-family="'Microsoft YaHei', 'PingFang SC', sans-serif" font-size="22" font-weight="500" fill="#5C2C24" opacity="0.8">副标题 · 三段式 · 节日元素</text>
+
+  <rect x="20" y="20" width="1160" height="860" fill="none" stroke="#C1121F" stroke-width="3" rx="10" opacity="0.4"/>
+  <rect x="30" y="30" width="1140" height="840" fill="none" stroke="#FFD700" stroke-width="1" rx="8" opacity="0.5"/>
+</svg>

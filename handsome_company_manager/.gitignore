@@ -1,0 +1,60 @@
+# Sensitive files - NEVER commit
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.*
+auth.lock
+*.lock
+gateway.lock
+gateway.pid
+state.db
+state.db-shm
+state.db-wal
+
+# Transient caches and runtime state
+audio_cache/
+image_cache/
+cache/
+logs/
+sessions/
+plans/
+workspace/
+gateway-service/
+home/
+pairing/
+weixin/
+memory_sessions/
+
+# Large regenerable caches
+models_dev_cache.json
+*.cache
+
+# Skill metadata (regenerable)
+skills/.usage.json
+skills/.usage.json.lock
+skills/.bundled_manifest
+skills/.curator_state
+skills/.curator_backups/
+skills/.archive/
+skills/.hub/
+
+# Prompt snapshot (regenerable)
+.skills_prompt_snapshot.json
+
+# Cron tick lock
+cron/.tick.lock
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+__pycache__/
+*.pyc
