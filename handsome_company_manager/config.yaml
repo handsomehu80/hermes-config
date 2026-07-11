@@ -90,7 +90,7 @@ terminal:
   persistent_shell: true
   lifetime_seconds: 300
 web:
-  backend: ''
+  backend: tavily
   search_backend: tavily
   extract_backend: ''
 browser:
@@ -262,7 +262,7 @@ display:
   inline_diffs: true
   file_mutation_verifier: true
   turn_completion_explainer: true
-  show_cost: false
+  show_cost: true
   skin: default
   language: en
   tui_status_indicator: kaomoji
@@ -358,7 +358,7 @@ memory:
   user_profile_enabled: true
   memory_char_limit: 2200
   user_char_limit: 1375
-  provider: ''
+  provider: hindsight
   nudge_interval: 10
   flush_min_turns: 6
 delegation:
@@ -433,13 +433,13 @@ matrix:
 approvals:
   mode: smart
   timeout: 60
-  cron_mode: deny
+  cron_mode: smart
   mcp_reload_confirm: true
   destructive_slash_confirm: true
-command_allowlist: []
+command_allowlist: '["gh"]'
 quick_commands: {}
 hooks: {}
-hooks_auto_accept: false
+hooks_auto_accept: true
 personalities: {}
 security:
   allow_private_urls: false

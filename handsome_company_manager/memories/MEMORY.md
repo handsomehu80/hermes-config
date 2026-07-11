@@ -6,8 +6,6 @@ Hermes Agent v0.15.1, config v26, install at C:\Users\Administrator\AppData\Loca
 §
 Configured API keys: only MINIMAX_CN_API_KEY. Missing: OpenRouter, OpenAI, Google, xAI, Exa, Tavily, Firecrawl, Anthropic, GitHub, FAL, ElevenLabs. OAuth providers all unconfigured (Nous/Codex/xAI/Gemini). No GITHUB_TOKEN → 60 req/hr rate limit.
 §
-Toolset state (updated 2026-06-03): web (Tavily) ✓ enabled, browser (agent-browser + Playwright Chromium) ✓ enabled, browser-cdp still ⚠, image_gen/video_gen ⚠ (need FAL_KEY), x_search ⚠ (need XAI key), moa ⚠ (need OPENROUTER key), computer_use enabled but macOS-only (won't work on this Windows host). All other toolset gaps are by design — require their own platform credentials.
-§
-4-profile Agent Team (pm/eng/qa/ast) at ~/AppData/Local/hermes/profiles/ — Kanban dispatcher embedded in gateway (kanban.dispatch_in_gateway=true), 60s tick. End-to-end validated 2026-06-03: mdlinkcheck CLI build (37min, 54/54 tests, 99% coverage). Manual at ~/AppData/Local/hermes/USAGE.md. Pitfall: eng uses kanban_block(review-required) which traps parent-linked QA tasks — PM must unblock manually or fix SOUL.md.
+4-profile Agent Team (pm/eng/qa/ast) at ~/AppData/Local/hermes/profiles/. Kanban dispatcher embedded in gateway (kanban.dispatch_in_gateway=true), 60s tick. Manual at ~/AppData/Local/hermes/USAGE.md. (Validation history + pitfall notes archived 2026-07-09.)
 §
 用户口头报告状态 ≠ 实际状态:用户说"我的gh已经登录了"实测仍 not logged in(可能在别的 shell 跑过,token 没共享过来)。规则:用户说"好了"/"做完了"时,先用工具实测(gh auth status / curl / process list),不要直接信任口头报告。1+N 部署踩过一次。
