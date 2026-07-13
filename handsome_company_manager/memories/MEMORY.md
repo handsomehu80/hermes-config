@@ -9,3 +9,9 @@ Configured API keys: only MINIMAX_CN_API_KEY. Missing: OpenRouter, OpenAI, Googl
 4-profile Agent Team (pm/eng/qa/ast) at ~/AppData/Local/hermes/profiles/. Kanban dispatcher embedded in gateway (kanban.dispatch_in_gateway=true), 60s tick. Manual at ~/AppData/Local/hermes/USAGE.md. (Validation history + pitfall notes archived 2026-07-09.)
 §
 用户口头报告状态 ≠ 实际状态:用户说"我的gh已经登录了"实测仍 not logged in(可能在别的 shell 跑过,token 没共享过来)。规则:用户说"好了"/"做完了"时,先用工具实测(gh auth status / curl / process list),不要直接信任口头报告。1+N 部署踩过一次。
+§
+1+N 凭据事故(2026-07-13):handsome_company_manager 的 GITHUB_TOKEN 被 sed-i 负例测试擦掉,handoff.yaml 只存 first8,keyring/凭证管家无备份,等老板重粘。规则已写入 oneplusn skill:永不 in-place sed 凭据文件,只允许拷到 /tmp。恢复后立即做:icacls 600 + start.sh 接入 verify_github_identity.sh。
+§
+PM 团队研究模式 → oneplusn SKILL.md "PM Mode"。
+
+Windows MSYS 陷阱(2026-07-13,详见 oneplusn `references/windows-msys-tooling.md`):(1) `\\${var}` bash 双引号不展开,跑前 `echo $F`。(2) `icacls /T` 禁用于 hermes profile,用 PS `Set-Acl` 单文件。(3) `hermes_tools` 拒读 `.env`,凭据只能 `terminal` inspect。
