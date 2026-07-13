@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "AnchorState",
+  "description": "Per-task anchor state captured by agent-task-polling. Source this from the previous cron run's recorded output, not a separate state file, for fixtures that don't drift.",
+  "type": "object",
+  "required": ["task_id", "captured_at", "updated_at", "comments"],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "Stable task identifier (e.g. 'handsome-s-company/agent_workflow#2').",
+      "examples": ["handsome-s-company/agent_workflow#2"]
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp when this anchor was recorded."
+    },
+    "comments": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total comment count at anchor time."
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Issue updated_at at anchor time."
+    },
+    "last_comment_id": {
+      "type": ["integer", "null"],
+      "description": "ID of the newest comment at anchor time, or null if no comments."
+    },
+    "labels": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Sorted list of label names at anchor time."
+    },
+    "last_event": {
+      "type": ["object", "null"],
+      "description": "Most recent issue event at anchor time.",
+      "properties": {
+        "type": { "type": "string", "examples": ["labeled", "assigned", "closed", "commented"] },
+        "label": { "type": ["string", "null"], "description": "Label name for labeled events." },
+        "actor": { "type": "string", "description": "GitHub login of event actor." },
+        "at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "actor", "at"]
+    },
+    "resolved_assignee_login": {
+      "type": ["string", "null"],
+      "description": "Cached result of assignee identity resolution. Avoid re-resolving on each poll."
+    }
+  },
+  "examples": [
+    {
+      "task_id": "handsome-s-company/agent_workflow#2",
+      "captured_at": "2026-07-12T08:46:51Z",
+      "comments": 1,
+      "updated_at": "2026-07-09T12:22:34Z",
+      "last_comment_id": 4925026442,
+      "labels": ["priority:P3", "status:in-progress", "type:feature"],
+      "last_event": {
+        "type": "labeled",
+        "label": "status:in-progress",
+        "actor": "handsomehu80",
+        "at": "2026-07-09T12:22:34Z"
+      },
+      "resolved_assignee_login": "Handsome-Manager"
+    }
+  ]
+}
