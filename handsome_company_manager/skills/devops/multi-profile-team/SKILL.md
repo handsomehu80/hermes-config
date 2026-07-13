@@ -293,7 +293,7 @@ Weekly:
 
 Monthly:
 - `hermes doctor` per profile if it diverges from default
-- Backup: copy `~/AppData/Local/hermes/profiles/` and `~/AppData/Local/hermes/kanban.db`
+- Backup: copy `~/AppData/Local/hermes/profiles/` and `~/AppData/Local/hermes/kanban.db`. For a versioned, portable backup of one profile's *configuration* (config.yaml, SOUL.md, skills/, memories/, cron/jobs.json) to a GitHub repo with sensitive files excluded, see `references/profile-backup-to-github.md`.
 - Check `kanban.db` size — if >100MB, archive aggressively
 
 ## See Also
@@ -311,6 +311,7 @@ Monthly:
 - `references/soul-md-patterns.md` — narrative SOUL.md examples per role (PM/eng/qa/ast) folded in from the now-archived `agent-team-orchestration` skill
 - `references/4-profile-recipe.md` — battle-tested 4-role split with toolset matrix and observed runtime budgets, folded in from the now-archived `agent-team-orchestration` skill
 - `references/why-kanban-not-subagent.md` — design rationale: why persistent profiles + Kanban dispatch rather than `delegate_task` subagents for "team" work
+- `references/profile-backup-to-github.md` — recipe for backing up a single profile's config (excluding `.env`, `state.db*`, caches, skill-curator metadata) to a GitHub repo, including cron-context pitfalls (no `rm -rf`, no `execute_code`) and Windows HOME-override gotcha
 - `templates/4card-chain.sh` — script that creates the canonical 4-card T1→T2→T3→T4 chain
 - `templates/pilot-first.sh` — script for skeleton+pilot-data→verify (used by case-study-knowledge-base)
 - `templates/pm-soul.md` — starter SOUL.md for the PM orchestrator role
