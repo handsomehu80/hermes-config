@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-07-10T09:53:00.942839",
+  "updated_at": "2026-07-13T19:59:39.202248",
   "platforms": {
     "telegram": [],
     "discord": [],
@@ -13,7 +13,14 @@
     "sms": [],
     "dingtalk": [],
     "msgraph_webhook": [],
-    "feishu": [],
+    "feishu": [
+      {
+        "id": "oc_7fc21bb2aef66f4fc4f0c0fd7112b8fe",
+        "name": "oc_7fc21bb2aef66f4fc4f0c0fd7112b8fe",
+        "type": "dm",
+        "thread_id": null
+      }
+    ],
     "wecom": [],
     "wecom_callback": [],
     "weixin": [],
