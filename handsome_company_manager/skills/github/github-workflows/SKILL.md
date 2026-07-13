@@ -56,6 +56,7 @@ If `gh` is installed and authenticated, use it — it handles auth, pagination, 
 | **Pull Requests** | [`references/pr-workflow.md`](references/pr-workflow.md) | Branch → commit → push → open PR → monitor CI → auto-fix failures → merge. CI troubleshooting recipes in `references/ci-troubleshooting.md`. |
 | **Code Review** | [`references/code-review.md`](references/code-review.md) | Review local diffs before push, review open PRs, leave inline comments, submit formal approve/request-changes reviews. |
 | **Repo Management** | [`references/repo-management.md`](references/repo-management.md) | Clone, create, fork, set up branch protection, manage secrets, create releases, trigger Actions workflows, manage gists. API endpoint cheatsheet in `references/github-api-cheatsheet.md`. |
+| **Cron Polling** | [`references/cron-polling.md`](references/cron-polling.md) | Periodic / scheduled GitHub scans (assignee diffs, comment counters). Bot-vs-human identity, `gh api` vs `gh search` reliability, "new since last poll" state patterns, self-reply-loop avoidance, multi-source triangulation before `[SILENT]`. |
 
 For LOC/architecture analysis of a repo (not GitHub API), see the sibling skill [`codebase-inspection`](../codebase-inspection/SKILL.md) which uses `pygount` for language breakdowns and code-vs-comment ratios.
 
