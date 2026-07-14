@@ -1,7 +1,7 @@
 ---
 name: hermes-config-backup
-description: "Back up a Hermes Agent profile's configuration to a GitHub repository — discover the repo layout, sync config files while honoring the existing .gitignore, commit, and push. Use when a cron job or user asks to back up Hermes profile config, mirror `~/.hermes/profiles/<profile>/` to a remote git repo, or set up daily/periodic config snapshots. Covers the canonical backup set (config.yaml, SOUL.md, channel_directory.json, memories/, cron/jobs.json, custom skills), the `.bundled_manifest` filter for distinguishing user-installed skills from bundled ones, Windows Git Bash MSYS gotchas, and a re-runnable Python sync script that works on any platform."
-version: 1.0.0
+description: "Back up a Hermes Agent profile's configuration to a GitHub repository — discover the repo layout, sync config files while honoring the existing .gitignore, commit, and push. Use when a cron job or user asks to back up Hermes profile config, mirror `~/.hermes/profiles/<profile>/` to a remote git repo, or set up daily/periodic config snapshots. Covers the canonical backup set (config.yaml, SOUL.md, channel_directory.json, memories/, cron/jobs.json, custom skills), the `.bundled_manifest` filter for distinguishing custom skills from bundled ones, Windows Git Bash MSYS gotchas, the `github.com:443` firewall fallback to the GitHub REST API, the Git Data API `BadObjectState` trap when committing 100+ blobs, and a re-runnable Python sync script that works on any platform."
+version: 1.2.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -16,6 +16,36 @@ metadata:
 Mirror a Hermes profile directory into a GitHub repo as a one-folder-per-profile monorepo, commit, and push. The destination repo almost always has a pre-existing `.gitignore` and README documenting the expected layout — **read both first**, then mirror their conventions.
 
 This is the canonical playbook for cron jobs like `handsome_company_manager-config-backup`. It is also the right starting point when a user asks "back up my Hermes config", "snapshot my agent profile", or wants a recurring config push to a private GitHub repo.
+
+## Architecture: Where the Backup Actually Lives (read this first)
+
+There are **four distinct locations** in the 1+N backup flow. Confusing them is the #1 cause of "I can't find my profile in hermes-config" reports:
+
+| # | Concept | Path | Lifetime |
+|---|---|---|---|
+| 1 | **Source** (live profile) | `~/.hermes/profiles/<profile>/` (Windows: `%LOCALAPPDATA%\hermes\profiles\<profile>\`) | Permanent |
+| 2 | **Staging** (sync buffer) | `/tmp/hermes-backup/hermes-config/<profile>/` (Windows git-bash: `%LOCALAPPDATA%\Temp\hermes-backup\hermes-config\<profile>\`) | Transient — cleared on every sync |
+| 3 | **GitHub target** (real backup) | `https://github.com/<owner>/hermes-config/tree/main/<profile>` | Permanent — this is the "real" backup |
+| 4 | **Team work-dir** (1+N related but DIFFERENT) | `D:\onboarding\<team>\` | PM's repo + handoff.yaml + agents/. **NOT** a backup location. May not even exist after a reinstall. |
+
+**The boss asks "where is my profile in hermes-config?" → answer is #3 (GitHub).** The team work-dir (#4) is where PM-employees do their day-to-day Issue work; it is NOT a backup of the profile config, even though it might contain a folder named `hermes-config`. When the user reports "the backup directory is missing", first confirm which # they're looking for:
+
+- If they mean #2 (staging): it gets recreated on every cron tick — its absence is normal, look at the GitHub target instead.
+- If they mean #3 (GitHub): verify `gh api repos/<owner>/hermes-config/contents/<profile>` and check the latest commit SHA.
+- If they mean #4 (team work-dir): that was never a backup — point them at #3.
+- If they mean something else (e.g. `D:\onboarding\<team>\hermes-config\<profile>\` that doesn't exist): they may have a stale mental model. The fix is documentation, not file restoration.
+
+The cron prompt's `workdir` (e.g. `D:\onboarding\<team>\`) is a **separate** concept — it controls the cwd of the LLM-driven cron run, not the staging location. If that workdir gets deleted, the cron silently runs in a missing dir while `hermes cron list` still shows `ok`. See the `oneplusn` skill's "Cron `workdir` drift" pitfall for diagnosis + fix.
+
+### Confirm source-of-truth before diagnosing "missing" reports (2026-07-14)
+
+When the user reports "the backup is missing" or "the profile isn't in hermes-config", do NOT jump to a fix. First lay out evidence from all 4 locations in a 4-row table (timestamp + size + commit-SHA + 2-3 sample filenames per location). The user often has a different # in mind than you assume — and the answer to "which is the source" is not always obvious because:
+
+- Profile local (1) and GitHub (3) are usually consistent (cron pushes the local → GitHub), but **GitHub may be fresher than local** if you also push from another machine or via API fallback
+- The team work-dir (4) is a separate repo (`handsome-s-company/agent_workflow`, not `hermes-config`); its `hermes-config/<profile>/` subfolder is a **collaboration-viewable copy**, not the source — and it can lag arbitrarily
+- Staging (2) is transient; "missing" there is normal, ignore it
+
+The user asked "你先要确认哪个是源头" — that question is only answerable after seeing timestamps and SHAs side by side. **Get the evidence table first, then propose the source.** Picking a source before evidence is collected leads to confidently-wrong diagnoses (e.g. "D:\onboarding doesn't exist" when it's on a separate D: partition you didn't search).
 
 ## When to Use
 
@@ -56,6 +86,10 @@ A well-set-up backup repo has **one subdirectory per profile**, each containing 
 | `state.db`, `state.db-shm`, `state.db-wal` | Runtime state database |
 | `audio_cache/`, `image_cache/`, `cache/`, `logs/`, `sessions/`, `plans/`, `workspace/` | Regenerable caches / transient state |
 | `gateway-service/`, `home/`, `pairing/`, `weixin/` | Runtime/pairing state, possibly creds |
+| `lsp/`, `node_modules/` | LSP language servers + their npm deps; **18MB+ of regenerable runtime**. The existing remote may predate LSP support — **add this if `lsp/` shows up in the diff**. |
+| `processes.json` | Runtime process state (PIDs, ports). Not config. |
+| `.hermes_history` | **Chat history — contains PAT fragments** the boss pasted (e.g. `github...Q6gJ`). If the previous remote's `.gitignore` did not exclude this, it is a security gap; add it. |
+| `*.bak.*` (e.g. `config.yaml.bak.20260713_*`) | Old config backups. The active `config.yaml` is enough. |
 | `models_dev_cache.json`, `*.cache` | Model metadata cache |
 | `skills/.usage.json`, `skills/.usage.json.lock`, `skills/.bundled_manifest`, `skills/.curator_state`, `skills/.curator_backups/`, `skills/.archive/`, `skills/.hub/` | Skill bookkeeping (regenerable) |
 | `cron/.tick.lock` | Cron tick lock |
@@ -84,6 +118,16 @@ git clone https://github.com/<owner>/hermes-config.git /tmp/hermes-backup/hermes
 ```
 
 Use a fresh working directory. **Avoid `rm -rf`** on Windows Git Bash — it triggers an approval prompt. Just `mkdir -p` into a different name if the dir exists.
+
+**`git clone` may fail with TCP timeout on `github.com:443`** even though `gh api` works. This is a known pattern: a firewall whitelist that allows `api.github.com` and `codeload.github.com` but blocks direct `github.com` HTTPS. **Don't keep retrying git** — switch to the API-fallback path documented in [§ "When `git push` Is Blocked: API Fallback"](#when-git-push-is-blocked-api-fallback) below. Symptoms:
+
+```text
+Cloning into 'hermes-config'...
+fatal: unable to access 'https://github.com/<owner>/<repo>.git/':
+Failed to connect to github.com port 443 after 21074 ms: Could not connect to server
+```
+
+…but `gh api repos/<owner>/<repo>` returns valid JSON. **That asymmetry = use the API path.**
 
 ### 3. Read the existing `.gitignore` and README
 
@@ -162,6 +206,52 @@ gh api "repos/<owner>/<repo>/commits?per_page=2" > /tmp/commits.json
 
 Confirm via `gh api` that the latest commit's SHA matches the local one. Then report what was backed up (which files changed, total count, total size) — the cron job wants an explicit summary, not just "ok".
 
+## When `git push` Is Blocked: API Fallback
+
+Some Windows / corporate environments firewall `github.com:443` (the host used by `git clone` / `git push`) while leaving `api.github.com` and `codeload.github.com` open. `git push` then hangs forever or times out at the TCP layer. When that happens, **do not loop on `git`** — switch to the GitHub REST API for the whole sync. Both `gh api` and direct `urllib` calls work because they target `api.github.com`.
+
+### When to use this path
+
+- `git clone https://github.com/<owner>/<repo>.git` times out at the TCP layer (21s connect timeout is the giveaway)
+- `gh api repos/<owner>/<repo>` returns a valid response
+- `codeload.github.com/.../tar.gz` downloads successfully
+- This pattern: push fails for git, works for API → firewall allow-lists `*.githubusercontent.com` / `api.github.com` but not `github.com`
+
+### Five-step API path (proven recipe — used in 2026-07-13 PM backup, 114 files)
+
+1. **Download the existing remote as a tarball** (not `git clone`):
+   ```bash
+   curl -sL -o /tmp/hermes-backup/repo.tar.gz \
+     https://codeload.github.com/<owner>/<repo>/tar.gz/refs/heads/main
+   mkdir -p /tmp/hermes-backup/<repo>-original
+   tar -xzf /tmp/hermes-backup/repo.tar.gz -C /tmp/hermes-backup/<repo>-original --strip-components=1
+   ```
+2. **Mirror the live profile into a sync working tree** using the canonical `sync_profile.py` (with extended exclusions — see script below). Preserve the remote's `.gitignore` verbatim.
+3. **Diff the two trees** by SHA-256 of each non-excluded file. Output: `new` (additions), `modified` (SHA differs), `deleted` (in remote, not in local).
+4. **Push via Contents API (preferred) or Git Data API (atomic single commit)**. See choice matrix below.
+5. **Verify by re-listing the repo** via `gh api repos/<owner>/<repo>/contents/<path>` and confirm the latest commit on `main` is yours.
+
+### Contents API vs Git Data API — choose per batch size
+
+| Batch size | API | Cost | Atomicity | Failure mode |
+|---|---|---|---|---|
+| ≤30 files | Contents API (`PUT /repos/{owner}/{repo}/contents/{path}`) | N commits | One commit per file — history is noisy but each is independent | 404 if parent dir missing (Contents API auto-creates it, so this is rare) |
+| 30–150 files | Contents API (safer) | N commits | Same | None observed; rate-limit-aware (≈3 blobs/sec via `urllib`) |
+| >150 files | Git Data API (blobs + tree + commit + ref) | 1 commit | Single commit | `GitRPC::BadObjectState` (HTTP 422) — see below |
+
+### Known API failure modes (reproduce to verify)
+
+1. **`POST /git/trees` with `base_tree` + 100+ entries → HTTP 422 `GitRPC::BadObjectState`**. All blob creations succeed; the tree creation fails after the fact. Root cause: GitHub's blob storage has eventual consistency, and the tree endpoint can't always see blobs created seconds before. **Workaround:** switch to Contents API (no tree creation), or split into smaller `base_tree` chunks. Verified on 2026-07-13 with 114 entries.
+2. **Contents API PUT requires `sha` for updates**. For new files, omit `sha`. For modified files, `GET /contents/{path}?ref=main` first to fetch the current `sha`, then include it in the PUT body. A 404 on the GET = new file.
+3. **GitHub Contents API: file paths cannot contain `\`**. The script must convert all backslashes in Windows paths to `/` before the request (`rel.replace("\\", "/")` or use `Path.as_posix()`).
+4. **Rate limit is 5000/hr authenticated** — far above what backups need. Check via `gh api rate_limit` before long runs.
+
+### Why not just retry `git push`?
+
+Don't. TCP-level blocks do not clear on retry; they clear when the network admin changes the firewall. Re-burning 30s per retry is wasted cron time. Verify the path quickly (one `gh api` call), then commit to the API path.
+
+See [`references/api-fallback-when-git-blocked.md`](references/api-fallback-when-git-blocked.md) for the full reproduction recipe, the two ready-to-run Python scripts (`push_via_contents.py` and the Git Data API variant), and a sample commit log from a real backup run.
+
 ## Distinguishing Custom Skills from Bundled Ones
 
 The profile's `skills/.bundled_manifest` is a `name:hash` listing of skills shipped with the Hermes bundle. Skills whose directory names **don't appear** in the manifest are user-installed (custom) and should be backed up. The bundled ones can be reinstalled from the upstream bundle, so backing them up is wasted space and may conflict with future bundle upgrades.
@@ -187,6 +277,71 @@ These hit during real syncs and will hit again. Full reproduction recipes in [`r
 5. **`cp -rf src dst` semantics differ from Unix** — trailing slash on `dst/` means "copy contents into"; without it, can rename `src` into `dst/src`.
 6. **`/tmp` is mounted to `%LOCALAPPDATA%\Temp`** — don't confuse with `C:\tmp\` (separate directory).
 7. **CRLF vs LF normalization** — `git status` warns "LF will be replaced by CRLF". Committed blob (LF) is always smaller than working-copy file (CRLF). Expected, not corruption.
+8. **`Path("/c/Users/...")` becomes a UNC path** (`\\c\Users\...`) when Python is invoked from MSYS bash. Always use `Path("C:/Users/...")` (forward slashes) for paths inside Python scripts. `bash /tmp` itself is `C:\Users\Administrator\AppData\Local\Temp\` (or whatever `%LOCALAPPDATA%` resolves to for the user) — `C:\tmp` is a separate directory that may not exist.
+9. **`write_file` with a relative path** in `terminal`/`patch` tools resolves against the **active workspace** (e.g. `~/.hermes/profiles/<name>`), not the bash `cwd`. If a file needs to land in `bash /tmp` (e.g. `C:/Users/Administrator/AppData/Local/Temp/...`), pass an absolute path. A script that "can't be found" by `python <path>` after `write_file` usually means the file went to a different tree.
+10. **Python output is line-buffered to stderr/stdout even with `tee`** — when a long-running script pipes to `tee push_log.txt`, the log file may not update for 30+ seconds even though work is happening. Run with `python -u` (unbuffered) or `PYTHONUNBUFFERED=1` so progress prints in real time. This is a Python quirk, not MSYS.
+11. **`$` in PowerShell via `bash -c "powershell -Command ..."`** gets eaten by bash before PowerShell sees it. `$_` becomes empty. Either write the PowerShell to a `.ps1` file and `powershell -File path.ps1`, or use `bash -lc` carefully. Confirmed with `Get-Process ... | Where-Object { $_.Name -like 'python*' }`.
+
+## Common Pitfalls (learned the hard way)
+
+### `hermes cron list` `last_status` reflects the LLM agent, not the subprocess
+
+`hermes cron list` reports the LLM agent's final turn status. If the agent uses a background `terminal(background=true)` process (e.g. `push_contents.py` for Contents API push), that subprocess **keeps running after the LLM hits `max_turns` or `tool call limit`** and finishes on its own. Concretely (2026-07-13 PM backup cron):
+
+- `last_status = error` ("触达工具调用上限")
+- But the GitHub repo shows 100 fresh commits with timestamps **10 minutes after** the cron error report — the `push_contents.py` background process actually completed
+
+**Before declaring "the backup failed":** verify via `gh api repos/<owner>/<repo>/commits?per_page=5` that the latest commit timestamp is recent AND authored by the backup cron (commit message prefix `backup:` or author `Hermes Config Backup`). If yes, the backup succeeded despite `last_status=error`. Treat the cron error as "the agent couldn't write the success summary", not "the backup didn't happen".
+
+The same applies to `last_delivery_error`: a delivery error means the cron couldn't post the report to its delivery channel, not that the underlying sync failed.
+
+### Check the working branch before staging files in a shared repo
+
+If you're syncing into a shared work-dir like `D:\onboarding\<team>\` (which is a multi-employee repo with branches like `feat/issue-7-evaluator-harness`, `feat/issue-16-ralph-loop-poc`, etc.), **always `git branch` first**. A common trap:
+
+1. Someone left the checkout on `feat/issue-XX-...` (a worker's in-flight branch)
+2. You `cp` files into `hermes-config/<profile>/`
+3. `git status` shows them as untracked, fine
+4. `git add` + `git commit` lands the backup on someone else's branch
+5. They pull and get your "chore: back up" commit mixed in with their feature work
+
+Safe pattern when staging files in a shared repo:
+
+```bash
+cd <shared_repo>
+git branch --show-current                    # which branch am I on?
+# If not main:
+git stash push -u -m "tmp: <scope>" -- <only_my_paths>
+git checkout main
+git stash pop
+# Now add + commit only your paths
+git add <only_my_paths>
+git commit -m "..."
+```
+
+Never `git add .` in a shared repo — it picks up `workspaces/`, `poc-snake/docs/`, and any other untracked work-in-progress from other employees. `git status` first, then `git add <exact_path>`.
+
+### Don't reference sibling employees' patterns in shared repos
+
+When you can't decide how to structure your own backup commit (message format, exclusion scope, staging layout), the instinct is to look at the dev/reviewer's existing backup commits in the same repo for reference. **Don't.** The user rule "谁的活谁干 / 不要越俎代庖" applies to backup work too:
+
+- Dev/reviewer backup commits are *theirs*. Reading them to copy their `.gitignore` style, their exclusion list, or their `chore: back up X` message format is treating their work as reference material — which leads to accidentally converging patterns (and accidentally looking like you're auditing their work).
+- If you need an exclusion rule, **derive it from your own profile** (`sync_profile.py`'s `EXCLUDE_DIRS/EXCLUDE_FILES/EXCLUDE_GLOBS`, plus the repo-level `.gitignore` that applies to all employees). Your own rules are authoritative for *your* backup.
+- If the repo-level `.gitignore` is missing a rule that you need (e.g. `hermes-config/**/.env` to block accidental `.env` commits), propose a repo-level change — but propose it as a separate PR/issue, not by silently piggybacking on your backup commit.
+
+This trap is especially easy to fall into because the shared `hermes-config/<profile>/` directories look structurally identical across employees (each has the same `config.yaml`, `SOUL.md`, `cron/`, `memories/`, `skills/` layout). Don't let that symmetry trick you into treating siblings as your reference docs.
+
+### Don't assume Windows is `C:\` only
+
+When searching for "missing" paths, always check that you're searching **all mounted drives**. The user's working setup can have:
+
+- `C:\` — Windows + Program Files
+- `D:\` — separate NTFS partition, mounted at `/d` in git-bash (often holds project data, `D:\onboarding\`, etc.)
+- OneDrive / cloud mounts at user-profile level
+
+Symptoms of forgetting: you `find /c/...` or `ls /c/Users/...` for a path and it doesn't exist, so you confidently report "the directory doesn't exist" — when it's on `D:\` (or another drive) all along. The user's correction was explicit: "你再仔细看一下 d:\onboarding 是真实存在的". Run `mount` or `df -h` first to see what's actually mounted, then search across all of them.
+
+---
 
 ## Verification Checklist
 
@@ -199,10 +354,28 @@ After the push, the cron job should report:
 
 If any item is missing or `.env` appears, **abort and report** — do not silently succeed.
 
+## Pre-flight: 30-Second Health Check (do this every cron tick)
+
+Before launching the full sync, confirm the three moving parts work. If any fails, switch to the API fallback path (§ "When `git push` Is Blocked: API Fallback") instead of starting the heavy sync.
+
+```bash
+# 1. gh auth still valid?
+gh auth status 2>&1 | head -3                                # expect "Logged in to github.com account ..."
+
+# 2. target repo reachable via API? (always works even when git is blocked)
+gh api "repos/<owner>/<repo>" 2>&1 | head -1                  # expect { "id": ..., "name": ... }
+
+# 3. git transport reachable? (probes for the firewall block)
+timeout 10 git -c http.version=HTTP/1.1 ls-remote https://github.com/<owner>/<repo>.git 2>&1 | head -3
+# If this hangs or returns "Connection timed out" → use API path
+# If it returns a list of refs (HEAD, refs/heads/main) → normal git path is fine
+```
+
 ## See Also
 
 - [`references/profile-layout.md`](references/profile-layout.md) — full anatomy of a Hermes profile directory, annotated durable vs transient entries
 - [`references/windows-quirks.md`](references/windows-quirks.md) — expanded MSYS / Git Bash gotchas with reproduction commands
+- [`references/api-fallback-when-git-blocked.md`](references/api-fallback-when-git-blocked.md) — full reproduction recipe for the GitHub Contents API / Git Data API push path, with ready-to-run Python scripts. **Read this before the first deploy on a Windows machine** where `github.com:443` may be firewalled.
 - [`scripts/sync_profile.py`](scripts/sync_profile.py) — the re-runnable sync script with configurable exclude lists
 - Sibling skill `hermes-memory-hygiene` — analogous cron-driven workflow for memory cleanup
 - `github-workflows` — general GitHub operations (auth, PRs, issues, repo management)
