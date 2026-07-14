@@ -1,0 +1,9 @@
+{
+  "last_report_path": "C:\\Users\\Administrator\\AppData\\Local\\hermes\\profiles\\handsome_company_manager\\logs\\curator\\20260713-123456",
+  "last_run_at": "2026-07-13T12:34:56.653469+00:00",
+  "last_run_duration_seconds": 1275.725331,
+  "last_run_summary": "auto: 15 marked stale, 1 reactivated; llm: Consolidation pass complete. Here's the human-readable summary:\n\n## Summary\n\nI scanned all 79 candidate skills, read their actual disk contents (107 SKILL.md files across the categories — several names in the candidate list had minor disk a…\narchived 19 skill(s):\n  • arxiv → research-tools\n  • blogwatcher → research-tools\n  • llm-wiki → research-tools\n  • polymarket → research-tools\n  • ascii-video — pruned (stale)\n  • dspy — pruned (stale)\n  • google-workspace — pruned (stale)\n  • himalaya — pruned (stale)\n  • linear — pruned (stale)\n  • maps — pruned (stale)\n  … and 9 more\nfull report: hermes curator status\nkeep an umbrella stable: hermes curator pin research-tools",
+  "last_run_summary_shown_at": null,
+  "paused": false,
+  "run_count": 5
+}
