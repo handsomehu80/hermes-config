@@ -8,10 +8,6 @@ Configured API keys: only MINIMAX_CN_API_KEY. Missing: OpenRouter, OpenAI, Googl
 §
 4-profile Agent Team (pm/eng/qa/ast) at ~/AppData/Local/hermes/profiles/. Kanban dispatcher embedded in gateway (kanban.dispatch_in_gateway=true), 60s tick. Manual at ~/AppData/Local/hermes/USAGE.md. (Validation history + pitfall notes archived 2026-07-09.)
 §
-用户口头报告状态 ≠ 实际状态:用户说"我的gh已经登录了"实测仍 not logged in(可能在别的 shell 跑过,token 没共享过来)。规则:用户说"好了"/"做完了"时,先用工具实测(gh auth status / curl / process list),不要直接信任口头报告。1+N 部署踩过一次。
-§
-1+N 凭据事故(2026-07-13):handsome_company_manager 的 GITHUB_TOKEN 被 sed-i 负例测试擦掉,handoff.yaml 只存 first8,keyring/凭证管家无备份,等老板重粘。规则已写入 oneplusn skill:永不 in-place sed 凭据文件,只允许拷到 /tmp。恢复后立即做:icacls 600 + start.sh 接入 verify_github_identity.sh。
-§
-PM 团队研究模式 → oneplusn SKILL.md "PM Mode"。
+PM 铁律+陷阱:(1) PM=派单+管进展,不越俎。(2) Issue closed≠完成,必查 commit+PR merged+抽读+evaluator 无 Write/Edit。(3) 用户口头"好了"/"做完了"必须工具实测再报告。(4) 凭据双链路:boss OAuth 可直 git push 绕 reviewer;员工 PAT 仅 gh API。(5) 永不 in-place sed .env。(6) MSYS:`\\${var}` 不展开、`icacls /T` 禁、`hermes_tools` 拒读 .env。详见 oneplusn references/windows-msys-tooling.md。
 
-Windows MSYS 陷阱(2026-07-13,详见 oneplusn `references/windows-msys-tooling.md`):(1) `\\${var}` bash 双引号不展开,跑前 `echo $F`。(2) `icacls /T` 禁用于 hermes profile,用 PS `Set-Acl` 单文件。(3) `hermes_tools` 拒读 `.env`,凭据只能 `terminal` inspect。
+PM cron:`pm-bihourly-status-report` job_id=d26c66fbbdd0, `0 */2 * * *`, deliver=feishu home。每 2h 拉真数据生成报告,只观察不干预。
