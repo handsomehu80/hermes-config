@@ -136,7 +136,7 @@ powershell -NoProfile -Command "Start-ScheduledTask -TaskName 'Hermes_Gateway_<p
 
 Verify liveness, not just liveness-of-process: a 6-hour-old `gateway.log` with no recent entries is a red flag. Always check `<profile_home>/logs/gateway.log` for `Cron ticker started (interval=60s)` with a recent timestamp. The full sequence for a 3-employee team (PM + dev + reviewer) is in `references/team-deployment-playbook.md`.
 
-**What the polling LLM actually does on each fire** — `[SILENT]` protocol, persona-vs-CLI account distinction, comment-author vs commentsCount, smoke-test expectations — is in `references/cron-polling-behavior.md`. Load that when you (or any digital employee) wakes up to handle a `task-polling` cron run; the one-sentence cron prompt is not enough on its own.
+**What the polling LLM actually does on each fire** — `[SILENT]` protocol, persona-vs-CLI account distinction, comment-author vs commentsCount, smoke-test expectations — is in `references/cron-polling-behavior.md`. Load that when you (or any digital employee) wakes up to handle a `task-polling` cron run; the one-sentence cron prompt is not enough on its own. §7a of that file + `scripts/post_as_persona.py` cover the "post a comment as the persona" pattern when `gh` is authenticated as the boss.
 
 ### When the user types `/oneplusn:foo` in chat
 
@@ -181,6 +181,46 @@ The `.claude/` package at `D:\onboarding` is the source of truth. This Hermes in
 10. **Per-agent identity verification + credential safety** (added 2026-07-13, after a real incident). Two complementary fixes:
     - `scripts/verify_github_identity.sh <profile>` — fail-fast check that boots before `hermes gateway start`, validates `GITHUB_TOKEN` ↔ GitHub `/user` ↔ `GITHUB_USERNAME` ↔ `GITHUB_EMAIL` (noreply format `<id>+<login>@users.noreply.github.com`). Exits 10/11/12 on mismatch; gateway refuses to start. Wire into every `agents/<name>/start.sh`.
     - **Rule:** never `sed -i` a live `.env` — always operate on a `/tmp/` copy. The 2026-07-13 incident that motivated this skill patch lost `GITHUB_TOKEN=*** from `~/.hermes/profiles/handsome_company_manager/.env` and required a manual paste-back because no other store had the token (`handoff.yaml` is truncated, no Credential Manager entry, keyring only holds LLM keys). See the "Per-Agent Credential & Identity Hygiene" section below.
+
+## Pitfall: Cron `workdir` drift is silent until it isn't (learned 2026-07-14)
+
+Every cron job registered during `oneplusn init` carries an absolute `workdir` field in `<profile_home>/cron/jobs.json` — typically the team work-dir (e.g. `D:\onboarding\handsome-s-company`). If that directory gets cleaned, deleted by a migration, or never existed in the first place, **`hermes cron list` still shows `ok` and `last_status=ok`** — the cron "fires", the LLM prompt runs, but the PM-employee's `gh issue list` and the backup script's `Path.cwd()` both point at nothing. Symptoms:
+
+- `cron/output/<job_id>/` stops getting new `.md` files (or keeps producing files dated months ago)
+- LLM responses contain "directory not found" / "No such file or directory" buried in the output
+- User can't find the profile in the "expected" backup folder under the team work-dir
+
+**The mental-model confusion:** there are **four distinct paths** in the 1+N architecture and they do NOT overlap:
+
+| Concept | Path | Purpose |
+|---|---|---|
+| Team work-dir | `D:\onboarding\<team>\` | PM's repo + handoff.yaml + agents/ (may not even exist after reinstall) |
+| Cron job `workdir` | `D:\onboarding\<team>\` (mirrored from team work-dir at deploy) | cwd for the LLM-driven cron run; breaks silently if missing |
+| Backup staging | `/tmp/hermes-backup/hermes-config/<profile>/` (Windows: `%LOCALAPPDATA%\Temp\hermes-backup\hermes-config\<profile>\`) | Where `sync_backup.py` mirrors the live profile before pushing to GitHub |
+| GitHub target | `https://github.com/<owner>/hermes-config/tree/main/<profile>` | The actual backup destination |
+
+Bosses naturally ask "where is my profile in hermes-config?" → expecting the **team work-dir**. The right answer is the **GitHub target**. The staging path is local and transient.
+
+**Fix when drift is detected:**
+
+```bash
+# 1. Verify the workdir really is missing (don't trust `hermes cron list` showing ok)
+python -c "import json,os; p=r'<profile_home>\cron\jobs.json'; \
+  d=json.load(open(p,encoding='utf-8')); \
+  [print(j['name'],'->',j.get('workdir','(none)'),'EXISTS' if os.path.isdir(j.get('workdir','')) else 'MISSING') \
+   for j in d['jobs']]"
+
+# 2. Either repoint to a real path or drop workdir entirely (cron falls back to profile home)
+hermes cron update <job_id> --workdir ""          # blank = use profile home
+# OR repoint to a path that actually exists
+hermes cron update <job_id> --workdir "C:/Users/Administrator/AppData/Local/hermes/profiles/<profile>/home"
+
+# 3. Verify the profile's Gateway picks up the change — restart it
+powershell -NoProfile -Command "Stop-Process -Name hermes-gateway -Force"
+# (re-trigger via the Scheduled Task, same as in §Cron registration above)
+```
+
+**Prevention at deploy time:** when running `oneplusn init --work-dir <team>`, validate the path BEFORE registering crons — `os.path.isdir(work_dir)` must be True. If the user wants a one-drive or cloud-mirrored path, give them a choice: real local path → use it, symbolic/repo path → drop `workdir` from cron jobs and let them default to profile home. The deployment checklist should ask "is the workdir real?" — see `references/deployment-checklist.md`.
 
 ## Operational Maintenance
 
@@ -299,6 +339,55 @@ When the boss asks the PM (you, in the `handsome_company_manager` profile) for *
 
 See `references/pm-mode-research-template.md` for the canonical report skeleton + section-by-section length budgets.
 
+## PM Operations: Managing the 1+N Team Day-to-Day
+
+Distinct from PM Mode (strategic analysis). This section covers the **ongoing operational rhythm** of the PM profile when the team is actually executing — assigning work, monitoring progress, auditing quality, escalating, and resolving conflicts.
+
+### Five Operating Moves
+
+1. **派单 (dispatch)** — `gh issue create --assignee <employee> --label "<type>,priority:<Px>,status:todo"` with a body that lists: scope, acceptance criteria, 6-iron-rule reminders, what NOT to do, expected response time. Match the assignee to the task shape: dev writes code, reviewer audits + closes, PM orchestrates (boss orchestrates the orchestrator). See `references/pm-operations-playbook.md` §1 for the dispatch body template.
+
+2. **监控 (monitor)** — After dispatch, do NOT spam the team. Trust cron. Watch for: PR opened, Issue comment added, status label flipped. Pull state via `gh issue list --label status:todo --assignee <name>` and `gh pr list --state all` on each wake. Don't fetch intermediate tool outputs to the chat — the boss sees only the final synthesis, so spend budget on verification not exploration. **The 2h status report cron is the digest layer that sits on top of this per-wake monitoring** — see `references/pm-bi-hourly-status-report.md` for the data collection commands, the 6-section template, the 摸鱼信号 rule, and the Windows `gh api` pitfalls the PM cron hits on every fire.
+
+3. **质量审计 (audit)** — Boss will ask "is anyone slacking?" Verify with concrete artifacts, not Issue state:
+   - `gh api /repos/<org>/<repo>/issues/<n>/comments` to read full thread
+   - `git log --since=<dispatch_time>` to count dev commits
+   - `gh pr list --state all` to confirm PR existence and additions/deletions
+   - `gh pr diff <n>` to spot-check code quality (don't just count lines)
+   - For deeper audits, `git checkout pr-<n> -- <file>` then read actual files
+   - **Red flags**: claimed + 9hr no commits / PR exists + 0 review comments / Issue closed but PR still OPEN (the next pitfall)
+   - **Pattern: "claimed but no progress" vs "completed but not communicated"** — both look idle from above; only workspace/PR inspection distinguishes them.
+
+4. **拍板 / 决断 (synthesize when team conflicts)** — When dev + reviewer disagree on a design choice, the PM does NOT delegate the decision upward ("let boss pick"). Instead, PM synthesizes a v2 that explicitly states which position wins on each point and why. The "decision table at the top of the doc" format works:
+
+   ```
+   | 决策点 | 拍板结果 | 采纳方 | 论据 |
+   | ralph-loop 语言 | Python + 5 行 bash 包装 | dev | Windows jq 缺失 + 路径 + 子进程 env 都更稳 |
+   | features 数量 | 保留 8 项(不合并) | reviewer | 验收契约必须独立 |
+   ...
+   ```
+
+   Place this table at the **top** of the design doc, before any detail. The dev then implements against v2, not v1 + scattered comments. The boss selects "A/B/C = synthesized best" when offered the choice, so default to synthesis unless one position is clearly weak.
+
+5. **升级 / 重派 (escalate / reassign)** — When a team member is stuck or priorities are violated:
+   - **P0 escalation**: `gh api -X POST /repos/<org>/<repo>/labels -f name='priority:P0' -f color='b60205'` then add to issue, paired with a PM comment citing the reason and the new expectation. Don't just label — explain in writing.
+   - **Reassign with context**: never just `gh issue edit --remove-assignee X --add-assignee Y`. The new assignee inherits nothing. List explicitly: branch name, existing commits (with SHAs), workspace artifacts to reuse, "don't rewrite code, just verify + wrap up", what NOT to do. Reference `references/pm-operations-playbook.md` §3 for the reassign body template.
+
+### Pitfalls (operational, not strategic)
+
+- **Issue closed ≠ PR merged.** Reviewer's `only-reviewer-can-close` rule lets them close an Issue after verbal acceptance, but the actual code lives in a PR. A closed Issue + open PR is the #1 signal that work stranded. Track PRs as a separate gate. Don't trust the "all green" feel of an Issue close — always `gh pr list --state all` for the related Issues.
+- **GitHub Issue numbers are shared with PRs.** When you派单, never assume "the next free number is N+1". A team moving fast async may have opened 3 PRs in the gap, eating numbers. Always `gh issue list --state all --limit 20` BEFORE creating, and prefer labels/assignees over hardcoded numbers in cross-references.
+- **Reassignment is not blame.** When the dev on a P2 ignores a P1 for 9+ hours and you reassign the P2 to reviewer, frame it as "your existing artifacts + reviewer's verification skill" not "you're being punished". Cite the conflict (P1 unblocked after your P0 escalation) and the reuse plan.
+- **Quality audit ≠ trust the Issue tracker.** Boss expects PM to verify with raw tool calls (PR diff, commit log, file content). Reports from the Issue tracker are self-reports. Always do `gh pr diff <n>` for at least one sample PR.
+- **PM does not micromanage subagents.** Once派单 is out, do NOT keep commenting to "check progress". The cron polls the team; PM watches the dashboard.
+
+### Templates and References
+
+- `templates/pm-decision-table.md` — the v1→v2 拍板 table format, copy-paste-ready
+- `templates/pm-dispatch-body.md` — the Issue body template PM uses to派单 to dev/reviewer
+- `templates/pm-reassign-body.md` — the reassign-with-context body template
+- `references/pm-operations-playbook.md` — full playbook with worked examples from real sessions (including the Loop Engineering Snake game coordination that produced the 8-vs-6 features decision)
+
 ## Self-verification (oneplusn-eval)
 
 `oneplusn-eval` runs 10 automated tests against a temp sandbox:
@@ -321,6 +410,7 @@ See `references/pm-mode-research-template.md` for the canonical report skeleton 
 ## See Also
 
 - `references/cron-polling-behavior.md` — **what the polling LLM should do on each `task-polling` cron fire** (the `[SILENT]` protocol, persona-vs-CLI account, smoke-test expectations, comment-author vs commentsCount). Load this when any digital employee wakes up to handle a poll; the one-sentence cron prompt isn't enough on its own.
+- `references/pm-bi-hourly-status-report.md` — **PM's recurring 2h status report cadence** (distinct from task-polling and from PM Mode). Includes the Windows-safe data-collection commands (with the `gh api` 30-comment-default trap and the MSYS path-rewrite fix), the boss's mandatory 6-section report template, the 摸鱼信号 0/3+ rule, and the 5 numbers §0 must always show. Load this on every PM 2h cron tick — the one-sentence cron prompt is not enough on its own.
 - `references/pat-validation.md` — safely validate an employee PAT without printing it: token validity, account ownership, private-repo permissions, credential precedence, fresh-process restart, and polling smoke test.
 - [`references/deployment-checklist.md`](references/deployment-checklist.md) — pre-flight Q bundle + blocker chain + verify-gh-auth pattern + the post-unblock runbook. Read this BEFORE the user's first deploy to avoid bouncing through blockers one at a time.
 - [`references/team-deployment-playbook.md`](references/team-deployment-playbook.md) — **end-to-end recipe for turning a 3-employee `handoff.yaml` into a fully-running 1+N team**. Covers: per-employee PAT collection, the concatenated-token redactor-bypass pattern, the `os.replace` write workaround, registering offset-staggered cron jobs (PM 15/45, dev 0/30, reviewer 10/40), resolving the missing `origin` remote and unrelated-history merge, killing stale `pythonw.exe` gateways via PowerShell, and the manual smoke-test command for each profile. Load this when on-boarding employees after `oneplusn init` but before any cron has actually fired.
