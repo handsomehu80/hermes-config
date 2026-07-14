@@ -29,6 +29,7 @@ EXCLUDE_DIRS = {
     'workspace', 'gateway-service', 'home', 'pairing', 'weixin',
     'memory_sessions', '.git', '__pycache__',
     '.curator_backups', '.archive', '.hub', '.idea', '.vscode',
+    'lsp', 'node_modules',  # LSP language servers + npm deps (18MB+ runtime, regenerable)
     'output',  # cron/output is per-job runtime output
 }
 
@@ -36,7 +37,8 @@ EXCLUDE_DIRS = {
 EXCLUDE_FILES = {
     '.env', 'auth.lock', 'gateway.lock', 'gateway.pid',
     'state.db', 'state.db-shm', 'state.db-wal',
-    'models_dev_cache.json', 'gateway_state.json',
+    'models_dev_cache.json', 'gateway_state.json', 'processes.json',
+    '.hermes_history',  # chat history may contain PAT fragments the boss pasted
     '.skills_prompt_snapshot.json',
     '.DS_Store', 'Thumbs.db', 'desktop.ini',
     '.usage.json', '.usage.json.lock', '.bundled_manifest',
@@ -47,6 +49,7 @@ EXCLUDE_FILES = {
 EXCLUDE_GLOBS = (
     '*.key', '*.pem', '*.p12', '*.pfx', '*.lock',
     '*.swp', '*.swo', '*~', '*.pyc', '*.cache',
+    '*.bak.*',  # e.g. config.yaml.bak.20260713_104900 (old config backups)
     '.env', '.env.*', 'secrets.*',
 )
 
