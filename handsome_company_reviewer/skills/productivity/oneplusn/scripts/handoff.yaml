@@ -1,0 +1,39 @@
+agents:
+  test-dev-01:
+    agent_type: hermes
+    cron_frequency: '*/30 * * * *'
+    gateway_port: 18001
+    github_email: test-boss+dev01@test.local
+    github_username: test-boss-dev01
+    name: test-dev-01
+    onboarded_at: '2026-07-08 16:00:00'
+    role: developer
+    soul_source: agency-agents-zh/engineering/senior-developer.md
+    status: active
+    upgrade_modules:
+    - hindsight
+    - search
+  test-rev-01:
+    agent_type: hermes
+    cron_frequency: 15,45 * * * *
+    gateway_port: 18002
+    github_email: test-boss+rev01@test.local
+    github_username: test-boss-rev01
+    name: test-rev-01
+    onboarded_at: '2026-07-08 16:01:00'
+    role: reviewer
+    soul_source: agency-agents-zh/engineering/code-reviewer.md
+    status: active
+boss:
+  email: boss@test.local
+  github_username: test-boss
+metadata:
+  generated_at: '2026-07-08 17:09:29'
+  stage: team-ready
+organization:
+  name: test-team
+  url: https://github.com/test-team
+repository:
+  issues_url: https://github.com/test-team/agent_workflow/issues
+  name: agent_workflow
+  url: https://github.com/test-team/agent_workflow
