@@ -1,0 +1,9 @@
+
+# 1+N 数字员工系统(自动维护)
+handoff.yaml  # 老板 PAT token,绝不上传
+agents/*/.env  # 员工的 GitHub token
+agents/*/soul-source.md  # 角色灵魂本地缓存(可选)
+__pycache__/
+*.log
+oneplusn-reap.log
+oneplusn-sync.log
