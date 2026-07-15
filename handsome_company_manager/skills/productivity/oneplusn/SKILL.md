@@ -224,6 +224,16 @@ powershell -NoProfile -Command "Stop-Process -Name hermes-gateway -Force"
 
 ## Operational Maintenance
 
+Daily (PM cron, typically 23:00 CST):
+```bash
+# Pulled automatically by the pm-daily-evening-report cron; see references/pm-daily-evening-report.md
+# Manual fallback if the cron hasn't fired yet:
+python -c "import json; d=json.load(open(r'C:/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/cron/jobs.json',encoding='utf-8')); \
+  [print(j['name'], j['schedule']['display'], j.get('last_status','null')) for j in d['jobs']]"
+# → if any cron shows last_status='error' AND output dir has no .md for 24h+, it's a zombie
+# → if any cron shows last_status=None AND was registered >24h ago, registration is broken
+```
+
 Weekly:
 ```bash
 oneplusn status --work-dir <team>
@@ -376,7 +386,7 @@ Distinct from PM Mode (strategic analysis). This section covers the **ongoing op
 ### Pitfalls (operational, not strategic)
 
 - **Issue closed ≠ PR merged.** Reviewer's `only-reviewer-can-close` rule lets them close an Issue after verbal acceptance, but the actual code lives in a PR. A closed Issue + open PR is the #1 signal that work stranded. Track PRs as a separate gate. Don't trust the "all green" feel of an Issue close — always `gh pr list --state all` for the related Issues.
-- **GitHub Issue numbers are shared with PRs.** When you派单, never assume "the next free number is N+1". A team moving fast async may have opened 3 PRs in the gap, eating numbers. Always `gh issue list --state all --limit 20` BEFORE creating, and prefer labels/assignees over hardcoded numbers in cross-references.
+- **GitHub Issue numbers are shared with PRs.** When you派单, never assume "the next free number is N+1". A team moving fast async may have opened 3 PRs in the gap, eating numbers. Always `gh issue list --state all --limit 20` BEFORE creating, and prefer labels/assignees over hardcoded numbers in cross-references. **Also**: when using `gh api repos/<org>/<repo>/issues` for ANY enumeration (issue count, open count, etc.), filter with `select(.pull_request == null)` — raw GitHub API returns PRs in the issues payload because PRs are technically issues. `gh issue list` (the CLI) already filters this for you; `gh api` does not. Discovered the hard way on 2026-07-15 daily report run: PR #13/#14/#15 inflated open-issue count by 3 until the filter was added.
 - **Reassignment is not blame.** When the dev on a P2 ignores a P1 for 9+ hours and you reassign the P2 to reviewer, frame it as "your existing artifacts + reviewer's verification skill" not "you're being punished". Cite the conflict (P1 unblocked after your P0 escalation) and the reuse plan.
 - **Quality audit ≠ trust the Issue tracker.** Boss expects PM to verify with raw tool calls (PR diff, commit log, file content). Reports from the Issue tracker are self-reports. Always do `gh pr diff <n>` for at least one sample PR.
 - **PM does not micromanage subagents.** Once派单 is out, do NOT keep commenting to "check progress". The cron polls the team; PM watches the dashboard.
@@ -411,6 +421,7 @@ Distinct from PM Mode (strategic analysis). This section covers the **ongoing op
 
 - `references/cron-polling-behavior.md` — **what the polling LLM should do on each `task-polling` cron fire** (the `[SILENT]` protocol, persona-vs-CLI account, smoke-test expectations, comment-author vs commentsCount). Load this when any digital employee wakes up to handle a poll; the one-sentence cron prompt isn't enough on its own.
 - `references/pm-bi-hourly-status-report.md` — **PM's recurring 2h status report cadence** (distinct from task-polling and from PM Mode). Includes the Windows-safe data-collection commands (with the `gh api` 30-comment-default trap and the MSYS path-rewrite fix), the boss's mandatory 6-section report template, the 摸鱼信号 0/3+ rule, and the 5 numbers §0 must always show. Load this on every PM 2h cron tick — the one-sentence cron prompt is not enough on its own.
+- `references/pm-daily-evening-report.md` — **PM's once-per-day end-of-day report cadence** (typically 23:00 CST = 15:00 UTC). 24h rolling window, ≤2500 字 budget, includes the "Δ vs yesterday" cross-day comparison pattern. Two new gotchas vs the 2h report: (a) `gh api .../issues` returns PRs too — must filter `select(.pull_request == null)`; (b) `last_status=None` (never fired) vs `last_status=error` (fired and failed) are different signals — see §2.3 of that file. Load this on every PM daily cron tick.
 - `references/pat-validation.md` — safely validate an employee PAT without printing it: token validity, account ownership, private-repo permissions, credential precedence, fresh-process restart, and polling smoke test.
 - [`references/deployment-checklist.md`](references/deployment-checklist.md) — pre-flight Q bundle + blocker chain + verify-gh-auth pattern + the post-unblock runbook. Read this BEFORE the user's first deploy to avoid bouncing through blockers one at a time.
 - [`references/team-deployment-playbook.md`](references/team-deployment-playbook.md) — **end-to-end recipe for turning a 3-employee `handoff.yaml` into a fully-running 1+N team**. Covers: per-employee PAT collection, the concatenated-token redactor-bypass pattern, the `os.replace` write workaround, registering offset-staggered cron jobs (PM 15/45, dev 0/30, reviewer 10/40), resolving the missing `origin` remote and unrelated-history merge, killing stale `pythonw.exe` gateways via PowerShell, and the manual smoke-test command for each profile. Load this when on-boarding employees after `oneplusn init` but before any cron has actually fired.

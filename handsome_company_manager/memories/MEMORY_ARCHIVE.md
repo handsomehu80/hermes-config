@@ -9,20 +9,23 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-13** — no entries in MEMORY.md carried an
-> internal date older than the 30-day cutoff (2026-06-13). All
-> dated entries in MEMORY.md are 2026-07-08 or later (youngest
-> cluster: 2026-07-13 `1+N 凭据事故` + `Windows MSYS 陷阱`) and
-> stay in active memory. All other MEMORY.md entries are
-> undated environment-state facts (host, model, API keys,
-> agent team, user trust rule) and stay in place per the
-> "no internal date → don't archive on mtime" rule. USER.md
-> (mtime 2026-06-05) is left in place — it stores timeless
-> user-profile facts (preferences, communication style), not
-> dated operational memory, so the mtime-based rule does not
-> apply. Hindsight `reflect()` skipped for this run per skill
-> guidance — see housekeeping for the 3rd consecutive
-> environmental failure and the recommended non-retry path.
+> Latest run: **2026-07-14** — no entries in MEMORY.md carried an
+> internal date older than the 30-day cutoff (2026-06-14). All
+> dated entries in MEMORY.md are 2026-07-08 or later and stay
+> in active memory. All other MEMORY.md entries are undated
+> environment-state facts (host, model, API keys, agent team,
+> user trust rule) and stay in place per the "no internal date
+> → don't archive on mtime" rule. USER.md left in place — it
+> stores timeless user-profile facts, not dated operational
+> memory, so the mtime-based rule does not apply. Hindsight
+> `reflect()` skipped for this run per skill guidance — 4th
+> consecutive same-signature environmental failure (HF Hub
+> cross-encoder download + embedded pg0 init), same as the
+> three prior runs; the 3-action remedy (HF_TOKEN /
+> `local_external` / `cloud`) is still open. No new
+> cross-encoder download was attempted this run per the
+> skill's "don't retry in the same run / same environment"
+> rule.
 
 ---
 
@@ -76,4 +79,9 @@ trusting this trick.
     b) Switch Hindsight to `mode: local_external` (run `hindsight_api` as a separate container / process outside the cron) — separates the model download lifecycle from the cron tick.
     c) Switch to `mode: cloud` if a hosted Hindsight endpoint is available.
   - Until one of (a/b/c) is applied, this skill's `reflect()` step will continue to skip and the markdown archive remains the sole source of truth.
-- Next scheduled cleanup: per the cron job cadence.
+- 2026-07-14 — no-op. Hindsight reflect **skipped** per skill guidance (4th consecutive same-signature run; the recommended 3-action remedy is still pending boss decision). Confirmed:
+  - `~/.hindsight/profiles/handsome_company_manager.log` mtime is **2026-07-12 21:54** — no new Hindsight activity since 7-12 (consistent with the 7-13 "skip" run and this 7-14 "skip" run).
+  - `hindsight` package remains importable; the failure is at the cross-encoder download step (HF Hub HEAD timeout) cascading into the embedded pg0 init, not at the LLM init or provider validation.
+  - `~/.hindsight/profiles/` has zero `.lock` files — no stale lock to clean.
+  - Markdown archive remains the sole source of truth; no MEMORY.md entries with an internal date older than 2026-06-14 exist. The 7-13 cutoff (2026-06-13) was actually 31 days back — bumped to a strict 30-day window this run for clarity.
+- Next scheduled cleanup: per the cron job cadence. Boss-driven action items for unlocking `reflect()`: see 2026-07-13 housekeeping (a/b/c).

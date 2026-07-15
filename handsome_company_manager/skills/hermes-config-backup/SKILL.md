@@ -1,7 +1,7 @@
 ---
 name: hermes-config-backup
-description: "Back up a Hermes Agent profile's configuration to a GitHub repository — discover the repo layout, sync config files while honoring the existing .gitignore, commit, and push. Use when a cron job or user asks to back up Hermes profile config, mirror `~/.hermes/profiles/<profile>/` to a remote git repo, or set up daily/periodic config snapshots. Covers the canonical backup set (config.yaml, SOUL.md, channel_directory.json, memories/, cron/jobs.json, custom skills), the `.bundled_manifest` filter for distinguishing custom skills from bundled ones, Windows Git Bash MSYS gotchas, the `github.com:443` firewall fallback to the GitHub REST API, the Git Data API `BadObjectState` trap when committing 100+ blobs, and a re-runnable Python sync script that works on any platform."
-version: 1.2.0
+description: "Back up a Hermes Agent profile's configuration to a GitHub repository — discover the repo layout, sync config files while honoring the existing .gitignore, commit, and push. Use when a cron job or user asks to back up Hermes profile config, mirror `~/.hermes/profiles/<profile>/` to a remote git repo, or set up daily/periodic config snapshots. Covers the canonical backup set (config.yaml, SOUL.md, channel_directory.json, memories/, cron/jobs.json, custom skills), the `.bundled_manifest` filter for distinguishing custom skills from bundled ones, Windows Git Bash MSYS gotchas, the `github.com:443` firewall fallback to the GitHub REST API, the Git Data API `BadObjectState` trap when committing 100+ blobs, the parallel-by-dir Contents API push pattern (grouped PUTs avoid the 409 sibling race; serial within dir), nested `.git/` and git-submodule handling, and a re-runnable Python sync script that works on any platform."
+version: 1.3.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -235,16 +235,19 @@ Some Windows / corporate environments firewall `github.com:443` (the host used b
 
 | Batch size | API | Cost | Atomicity | Failure mode |
 |---|---|---|---|---|
-| ≤30 files | Contents API (`PUT /repos/{owner}/{repo}/contents/{path}`) | N commits | One commit per file — history is noisy but each is independent | 404 if parent dir missing (Contents API auto-creates it, so this is rare) |
-| 30–150 files | Contents API (safer) | N commits | Same | None observed; rate-limit-aware (≈3 blobs/sec via `urllib`) |
-| >150 files | Git Data API (blobs + tree + commit + ref) | 1 commit | Single commit | `GitRPC::BadObjectState` (HTTP 422) — see below |
+| Any size (API-fallback path) | **Contents API** (preferred) | N commits | One commit per file — history is noisy but each is independent | 409 race on parallel siblings in a NEW dir (see pitfall); "file exists" if path is a submodule on remote |
+| Single-commit attempt | Git Data API (blobs + tree + commit + ref) | 1 commit | Single commit | `GitRPC::BadObjectState` (HTTP 422) at 100+ blobs; chunked fallback ALSO fails at 60+ entries with `tree.path contains a malformed path component` on a known-clean path (see pitfall). **Don't waste time on this — go straight to Contents API.** |
+
+**On Windows where direct `git push` is blocked, use Contents API regardless of size.** The Git Data API single-commit path's failure mode is non-recoverable (even individual path validation succeeds, but chained `base_tree` calls fail on GitHub's side). For ≥30 files, use the parallel-by-dir script: `scripts/push_via_contents_parallel.py`. The bundled `scripts/push_via_contents.py` is sequential and is fine for small diffs (<30 files) where parallelism doesn't matter.
 
 ### Known API failure modes (reproduce to verify)
 
-1. **`POST /git/trees` with `base_tree` + 100+ entries → HTTP 422 `GitRPC::BadObjectState`**. All blob creations succeed; the tree creation fails after the fact. Root cause: GitHub's blob storage has eventual consistency, and the tree endpoint can't always see blobs created seconds before. **Workaround:** switch to Contents API (no tree creation), or split into smaller `base_tree` chunks. Verified on 2026-07-13 with 114 entries.
+1. **`POST /git/trees` with `base_tree` + 100+ entries → HTTP 422 `GitRPC::BadObjectState`**. All blob creations succeed; the tree creation fails after the fact. Root cause: GitHub's blob storage has eventual consistency, and the tree endpoint can't always see blobs created seconds before. **Workaround:** switch to Contents API (no tree creation). **NOTE:** the chunked fallback in `push_via_git_data_api.py` also fails at 60+ entries with `tree.path contains a malformed path component` on known-clean paths — this is an unresolvable GitHub-side issue with chained `base_tree` calls. Don't bother with Git Data API; go straight to Contents API.
 2. **Contents API PUT requires `sha` for updates**. For new files, omit `sha`. For modified files, `GET /contents/{path}?ref=main` first to fetch the current `sha`, then include it in the PUT body. A 404 on the GET = new file.
-3. **GitHub Contents API: file paths cannot contain `\`**. The script must convert all backslashes in Windows paths to `/` before the request (`rel.replace("\\", "/")` or use `Path.as_posix()`).
+3. **GitHub Contents API: file paths cannot contain `\\`**. The script must convert all backslashes in Windows paths to `/` before the request (`rel.replace("\\\\", "/")` or use `Path.as_posix()`).
 4. **Rate limit is 5000/hr authenticated** — far above what backups need. Check via `gh api rate_limit` before long runs.
+5. **Contents API 409 race on parallel siblings in a NEW directory** (NEW 2026-07-14): when two workers PUT files into the same not-yet-existing parent dir, GitHub auto-creates the dir, the dir's SHA changes with each successful PUT, and the other worker gets 409 `is at X but expected Y`. Fix: serialize within each parent dir, parallelize ACROSS dirs. Use `scripts/push_via_contents_parallel.py` (groups by parent dir, sequential within dir, parallel across dirs). 4 workers is the right default — beyond 8 you start hitting 429s. Full reproduction and explanation in [`references/contents-api-pitfalls.md`](references/contents-api-pitfalls.md) § Pitfall 2.
+6. **Contents API 409 "file exists where you're trying to create a directory"** (NEW 2026-07-14): the path on the remote is a git submodule (tree entry `type: "commit"`, `mode: "160000"`), not a regular tree. The Contents API cannot write into a submodule. Detection: `gh api repos/<owner>/<repo>/git/trees/main?recursive=1` and look for entries with `type: "commit"`. Skip these paths in the diff. Full explanation in [`references/contents-api-pitfalls.md`](references/contents-api-pitfalls.md) § Pitfall 3b.
 
 ### Why not just retry `git push`?
 
@@ -331,15 +334,32 @@ When you can't decide how to structure your own backup commit (message format, e
 
 This trap is especially easy to fall into because the shared `hermes-config/<profile>/` directories look structurally identical across employees (each has the same `config.yaml`, `SOUL.md`, `cron/`, `memories/`, `skills/` layout). Don't let that symmetry trick you into treating siblings as your reference docs.
 
-### Don't assume Windows is `C:\` only
+### Don't assume Windows is `C:\\` only
 
 When searching for "missing" paths, always check that you're searching **all mounted drives**. The user's working setup can have:
 
-- `C:\` — Windows + Program Files
-- `D:\` — separate NTFS partition, mounted at `/d` in git-bash (often holds project data, `D:\onboarding\`, etc.)
+- `C:\\` — Windows + Program Files
+- `D:\\` — separate NTFS partition, mounted at `/d` in git-bash (often holds project data, `D:\\onboarding\\`, etc.)
 - OneDrive / cloud mounts at user-profile level
 
-Symptoms of forgetting: you `find /c/...` or `ls /c/Users/...` for a path and it doesn't exist, so you confidently report "the directory doesn't exist" — when it's on `D:\` (or another drive) all along. The user's correction was explicit: "你再仔细看一下 d:\onboarding 是真实存在的". Run `mount` or `df -h` first to see what's actually mounted, then search across all of them.
+Symptoms of forgetting: you `find /c/...` or `ls /c/Users/...` for a path and it doesn't exist, so you confidently report "the directory doesn't exist" — when it's on `D:\\` (or another drive) all along. The user's correction was explicit: "你再仔细看一下 d:\\onboarding 是真实存在的". Run `mount` or `df -h` first to see what's actually mounted, then search across all of them.
+
+### `.git/` directories inside custom skills leak into the backup walk (NEW 2026-07-14)
+
+A custom skill may carry its own internal git repository under `skills/<skill>/scripts/.git/` (or similar). The default exclusion list in `sync_profile.py` only excludes the profile-root `.git`, not nested ones — so the walk happily collects 30+ files of internal git state (`objects/XX/yyyyy...`, `refs/heads/main`, `logs/HEAD`, etc.) and the diff shows them as "new". The push then spends minutes on these (3s/file × 30 files) and pollutes the remote tree with regenerable noise.
+
+**Fix:** when walking the profile, prune `.git` at any depth:
+
+```python
+EXCLUDE_DIRS_AT_ANY_DEPTH = {'.git'}
+for root, dirs, files in os.walk(PROFILE):
+    dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS_AT_ANY_DEPTH]
+    ...
+```
+
+**Detection before the push:** if you see files like `skills/.../scripts/.git/objects/11/abcdef...` in the diff, that's the symptom. The check above prevents it; if it's already too late, just drop them from the diff JSON before pushing.
+
+Full context in [`references/contents-api-pitfalls.md`](references/contents-api-pitfalls.md) § Pitfall 3a.
 
 ---
 
@@ -376,6 +396,10 @@ timeout 10 git -c http.version=HTTP/1.1 ls-remote https://github.com/<owner>/<re
 - [`references/profile-layout.md`](references/profile-layout.md) — full anatomy of a Hermes profile directory, annotated durable vs transient entries
 - [`references/windows-quirks.md`](references/windows-quirks.md) — expanded MSYS / Git Bash gotchas with reproduction commands
 - [`references/api-fallback-when-git-blocked.md`](references/api-fallback-when-git-blocked.md) — full reproduction recipe for the GitHub Contents API / Git Data API push path, with ready-to-run Python scripts. **Read this before the first deploy on a Windows machine** where `github.com:443` may be firewalled.
+- [`references/contents-api-pitfalls.md`](references/contents-api-pitfalls.md) — **NEW (2026-07-14)**: 3 pitfalls not in the SKILL.md's main flow but hit in real backups — Git Data API chunked-tree failure at 60+ entries, Contents API parallel-sibling 409 race, nested `.git/` + submodule detection. **Read this before any >30-file backup push.**
 - [`scripts/sync_profile.py`](scripts/sync_profile.py) — the re-runnable sync script with configurable exclude lists
+- [`scripts/push_via_contents.py`](scripts/push_via_contents.py) — sequential Contents API push (use only for small diffs, <30 files)
+- [`scripts/push_via_contents_parallel.py`](scripts/push_via_contents_parallel.py) — **NEW (2026-07-14)**: Contents API push grouped by parent dir, serial-within-dir / parallel-across-dirs. The right tool for any non-trivial backup on the API-fallback path.
+- [`scripts/push_via_git_data_api.py`](scripts/push_via_git_data_api.py) — Git Data API single-commit push. **Not recommended on Windows API-fallback path** (see Pitfall 1 in contents-api-pitfalls.md).
 - Sibling skill `hermes-memory-hygiene` — analogous cron-driven workflow for memory cleanup
 - `github-workflows` — general GitHub operations (auth, PRs, issues, repo management)

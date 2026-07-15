@@ -22,15 +22,15 @@
       "schedule_display": "15,45 * * * *",
       "repeat": {
         "times": null,
-        "completed": 92
+        "completed": 138
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-07-12T21:38:50.188451+08:00",
-      "next_run_at": "2026-07-14T20:15:00+08:00",
-      "last_run_at": "2026-07-14T19:46:59.760779+08:00",
+      "next_run_at": "2026-07-15T20:15:00+08:00",
+      "last_run_at": "2026-07-15T19:45:41.973681+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -69,7 +69,7 @@
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-07-12T21:38:50.647582+08:00",
-      "next_run_at": "2026-07-15T20:00:00+08:00",
+      "next_run_at": "2026-07-16T20:00:00+08:00",
       "last_run_at": "2026-07-14T20:44:01.648359+08:00",
       "last_status": "ok",
       "last_error": null,
@@ -102,15 +102,15 @@
       "schedule_display": "0 21 * * *",
       "repeat": {
         "times": null,
-        "completed": 1
+        "completed": 2
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-07-12T21:38:51.108246+08:00",
-      "next_run_at": "2026-07-14T21:00:00+08:00",
-      "last_run_at": "2026-07-13T21:02:40.147017+08:00",
+      "next_run_at": "2026-07-15T21:00:00+08:00",
+      "last_run_at": "2026-07-14T21:02:42.790400+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -142,15 +142,60 @@
       "schedule_display": "0 */2 * * *",
       "repeat": {
         "times": null,
-        "completed": 1
+        "completed": 13
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-07-14T16:09:46.662783+08:00",
-      "next_run_at": "2026-07-14T22:00:00+08:00",
-      "last_run_at": "2026-07-14T18:03:09.528169+08:00",
+      "next_run_at": "2026-07-15T22:00:00+08:00",
+      "last_run_at": "2026-07-15T18:08:38.130118+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "feishu",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_7fc21bb2aef66f4fc4f0c0fd7112b8fe",
+        "chat_name": "oc_7fc21bb2aef66f4fc4f0c0fd7112b8fe",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": "D:\\onboarding\\handsome-s-company",
+      "profile": null
+    },
+    {
+      "id": "0cbfcf7b360e",
+      "name": "pm-daily-evening-report",
+      "prompt": "\u4f60\u662f PM @Handsome-Manager,\u6bcf\u665a 23:00 CST(15:00 UTC)\u7ed9\u8001\u677f\u4ea4\u4ed8\u4e00\u4efd**\u5f53\u65e5\u9879\u76ee\u65e5\u62a5**\u3002\u8fd9\u662f\u5f53\u65e5\u603b\u7ed3 + \u5f53\u524d\u5feb\u7167 + \u98ce\u9669\u8d8b\u52bf + \u660e\u65e5\u671f\u671b + \u8001\u677f\u51b3\u7b56\u70b9\u3002\u6bd4\u53cc\u5c0f\u65f6\u62a5\u544a\u66f4\u5168\u9762\u3002\n\n## \u6570\u636e\u91c7\u96c6(\u5fc5\u987b\u5b9e\u9645\u8dd1,\u4e0d\u8981\u51ed\u5370\u8c61)\n\n```bash\ncd /d/onboarding/handsome-s-company\n\n# 1. \u5f53\u65e5 commits(\u672c\u5730 + 24h)\ngit log --since=\"24 hours ago\" --pretty=format:\"%h | %ai | %an | %s\" 2>&1 | head -50\n\n# 2. \u5f53\u65e5 Issues \u521b\u5efa/\u5173\u95ed/\u8bc4\u8bba\nMSYS_NO_PATHCONV=1 gh api -H \"Accept: application/vnd.github+json\" /repos/handsome-s-company/agent_workflow/issues --jq '.[] | select(.created_at >= \"<24h ago>\") | \"[\\(.state)] \\(.user.login) created #\\(.number): \\(.title[0:50])\"' 2>&1 | head -20\nMSYS_NO_PATHCONV=1 gh api -H \"Accept: application/vnd.github+json\" /repos/handsome-s-company/agent_workflow/issues?state=closed --jq '.[] | select(.closed_at >= \"<24h ago>\") | \"[\\(.state)] #\\(.number) closed by \\(.user.login): \\(.title[0:50])\"' 2>&1 | head -20\n\n# 3. \u5f53\u524d\u6240\u6709 Issue \u72b6\u6001(\u5feb\u7167)\ngh issue list --repo handsome-s-company/agent_workflow --state all --json number,title,state,assignees,labels,comments,updatedAt 2>&1 | head -100\n\n# 4. PRs \u72b6\u6001\ngh pr list --repo handsome-s-company/agent_workflow --state all --json number,title,state,mergedAt,additions,author 2>&1 | head -50\n\n# 5. \u5f53\u65e5\u8bc4\u8bba\u6d41\nMSYS_NO_PATHCONV=1 gh api -H \"Accept: application/vnd.github+json\" /repos/handsome-s-company/agent_workflow/issues/comments --jq '.[] | select(.created_at >= \"<24h ago>\") | \"[\\(.created_at[11:16])] \\(.user.login): \\(.body[0:80])\"' 2>&1 | head -40\n```\n\n## \u62a5\u544a\u6a21\u677f(\u4e25\u683c\u6309\u6b64)\n\n```markdown\n# \ud83d\udcc5 PM \u9879\u76ee\u65e5\u62a5 \u2014 YYYY-MM-DD(CST)\n\n## 0. \u4eca\u65e5\u4e00\u53e5\u8bdd\u603b\u7ed3\n\n[\u2264 100 \u5b57]\n\n## 1. \u4eca\u65e5\u505a\u4e86\u4ec0\u4e48(24h)\n\n| \u65f6\u6bb5 | \u4e8b\u4ef6 | \u8d21\u732e\u65b9 |\n|---|---|---|\n| ... | ... | dev / reviewer / PM / boss |\n\n## 2. \u5f53\u524d\u5feb\u7167(Issue + PR \u5168\u8868)\n\n| # | \u6807\u9898 | \u7c7b\u578b | \u72b6\u6001 | assignee | \u5173\u952e |\n|---|---|---|---|---|---|\n\n## 3. \u7ea2\u9ec4\u7eff\u706f\u98ce\u9669\n\n| \u98ce\u9669\u9879 | \u7b49\u7ea7 | \u8be6\u60c5 | \u8d8b\u52bf(\u76f8\u6bd4\u6628\u65e5) |\n|---|---|---|---|\n\n## 4. \u6bcf\u4eba\u5f53\u65e5\u8d21\u732e\n\n| \u89d2\u8272 | \u8d26\u53f7 | commits | \u8bc4\u8bba | PR \u52a8\u4f5c | Issue \u52a8\u4f5c | \u7efc\u5408\u8bc4\u4f30 |\n|---|---|---|---|---|---|---|\n| \ud83d\udee0 dev | handsome-hudeveloper | ... | ... | ... | ... | \u826f\u597d / \u6478\u9c7c\u5acc\u7591 / \u79bb\u7ebf |\n| \ud83d\udd0d reviewer | Handsome-Review | ... | ... | ... | ... | \u540c\u4e0a |\n| \ud83d\udc11 PM | \u4f60(\u6211) | ... | ... | ... | ... | \u2014 |\n| \ud83d\udc51 boss | handsomehu80 | ... | ... | ... | ... | \u2014 |\n\n## 5. \u8de8\u65e5\u8d8b\u52bf(\u5bf9\u6bd4\u6628\u65e5\u62a5\u544a)\n\n| \u7ef4\u5ea6 | \u6628\u65e5 | \u4eca\u65e5 | \u0394 |\n|---|---|---|---|\n| Open Issue \u6570 | ... | ... | ... |\n| Closed Issue \u6570 | ... | ... | ... |\n| Open PR \u6570 | ... | ... | ... |\n| ... | ... | ... | ... |\n\n## 6. \u660e\u65e5\u671f\u671b\u89e6\u53d1(\u8001\u677f\u9700\u8981\u77e5\u9053)\n\n| \u65f6\u70b9 | \u671f\u671b\u4e8b\u4ef6 |\n|---|---|\n| \u660e\u65e5 09:00 | dev \u9996\u4e2a cron \u89e6\u53d1 \u2192 \u5e94\u56de\u8bc4\u8bba #16 snake \u8bbe\u8ba1\u62cd\u677f |\n| ... | ... |\n\n## 7. \u8001\u677f\u51b3\u7b56\u70b9(\u9700\u8981\u4f60\u62cd\u677f)\n\n- [ ] \u51b3\u7b56 1:...\n- [ ] \u51b3\u7b56 2:...\n\n(\u6216\u6ce8\u660e\"\u65e0\u9700\u51b3\u7b56,\u7ee7\u7eed\u63a8\u8fdb\")\n\n## 8. \u4e0d\u9700\u8981\u8001\u677f\u64cd\u4f5c(\u9664\u975e\u6807 \ud83d\udd34)\n```\n\n## \u5f3a\u7ea6\u675f\n\n1. **\u4e0d\u8981\u51ed\u5370\u8c61** \u2014 \u6240\u6709\u6570\u636e\u8d70\u5b9e\u9645\u547d\u4ee4\n2. **\u4e0d\u8981\u8d8a\u4fce** \u2014 \u53ea\u89c2\u5bdf + \u62a5\u544a\n3. **\u4e0d\u8981\u7f16\u9020** \u2014 \u6570\u636e\u62c9\u4e0d\u5230\u660e\u8bf4\n4. **\u6478\u9c7c\u4fe1\u53f7**:\n   - \u5f53\u65e5 0 commits 0 \u8bc4\u8bba 0 PR 0 Issue \u52a8\u4f5c = \u6478\u9c7c\u5acc\u7591\n   - \u5f53\u65e5\u6709 cron \u5e94\u89e6\u53d1\u4f46\u65e0\u4ea7\u51fa = \u540c\u4e0a\n   - \u8fde\u7eed 3 \u5929\u6478\u9c7c\u5acc\u7591 = \u5347\u7ea7\u4e3a \ud83d\udd34\n5. **\u62a5\u544a\u603b\u957f \u2264 2500 \u5b57**\n6. **\u6295\u9012**:cron \u81ea\u52a8 final response \u6295\u9012\u5230 feishu home channel\n7. **\u9996\u6b21\u8dd1**:\u65e0\u6628\u65e5\u5bf9\u6bd4,\u6807\"\u9996\u6b21\u65e5\u62a5,\u65e0\u5bf9\u6bd4\u57fa\u7ebf\"\n\n## \u5fc5\u586b\u6570\u636e\u70b9\n\n- \u5f53\u524d\u65f6\u95f4(CST)\n- \u5f53\u65e5 commits \u6570 / Issue \u6570 / PR \u6570 / \u8bc4\u8bba\u6570\n- \u6bcf\u4eba commit / \u8bc4\u8bba / PR / Issue \u8ba1\u6570\n- \u98ce\u9669\u7b49\u7ea7\u5206\u5e03(\u7ea2 / \u9ec4 / \u7eff \u5404\u51e0\u4e2a)\n- \u660e\u65e5\u7b2c\u4e00\u4e2a cron \u89e6\u53d1\u65f6\u70b9(\u660e\u65e9 dev cron = 09:00 CST = 01:00 UTC)\n\n\u8dd1\u5b8c\u7528\u4e00\u53e5\u8bdd\u7ed3\u5c3e:\"\u65e5\u62a5\u5df2\u751f\u6210,\u6295\u9012\u5230 feishu home\"\u3002",
+      "skills": [
+        "oneplusn"
+      ],
+      "skill": "oneplusn",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 15 * * *",
+        "display": "0 15 * * *"
+      },
+      "schedule_display": "0 15 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 2
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-07-15T08:27:15.546848+08:00",
+      "next_run_at": "2026-07-16T15:00:00+08:00",
+      "last_run_at": "2026-07-15T15:08:02.660395+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -166,5 +211,5 @@
       "profile": null
     }
   ],
-  "updated_at": "2026-07-14T20:44:01.651407+08:00"
+  "updated_at": "2026-07-15T20:00:43.598680+08:00"
 }

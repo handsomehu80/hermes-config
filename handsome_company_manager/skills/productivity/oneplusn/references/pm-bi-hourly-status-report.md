@@ -83,15 +83,69 @@ date -u -d "2 hours ago" "+%Y-%m-%dT%H:%M:%SZ"   # on this host
 # 2026-07-14T08:01:39Z
 ```
 
-### 2.5 Bonus: cron liveness check
+### 2.5 Cron liveness check (3-state classification, learned 2026-07-15)
 
-Verify the PM's own cron is actually firing (vs. silently dead due to the `workdir` pitfall above):
+The 2026-07-14 report (#11) incorrectly diagnosed "team silent 21h" as "cron ticker died". The 2026-07-15 report (#12) corrected this: cron was firing perfectly every 30 min and the LLM was returning `[SILENT]` correctly under the existing rule. The fix is to upgrade the liveness check from "is cron firing?" to a **3-state classification** that distinguishes healthy-idle, stale-verdict-deadlock, and cron-dead.
 
 ```bash
-ls -la "/c/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/cron/output/" | tail -5
-# expect: new .md files dated every ~30 min (the task-polling cron, not 2h)
-# if last file is >2h old, the cron ticker may have died — restart the Gateway
+# Step A: cron firing? — check output dir for fresh .md files
+ls -lat "/c/Users/Administrator/AppData/Local/hermes/profiles/<profile>/cron/output/" | head -5
+# find the job_id subdir, then:
+ls -lat "/c/Users/Administrator/AppData/Local/hermes/profiles/<profile>/cron/output/<job_id>/" | head -5
+
+# Step B: LLM executing? — check file size (skill dump alone is ~50 KB; pure [SILENT] responses are ~80 KB)
+# recent .md files < 1 KB = script crashed before LLM (different problem)
+# recent .md files > 50 KB = LLM ran
+
+# Step C: LLM verdict — tail the latest .md, look for "## Response\n\n[SILENT]"
+tail -c 300 "/c/Users/Administrator/AppData/Local/hermes/profiles/<profile>/cron/output/<job_id>/<latest>.md"
+
+# Step D: open assigned Issues for the agent under check
+gh issue list --assignee @me --state open --json number,title,updatedAt --jq '.[] | "#\(.number) [\(.updatedAt)] \(.title[0:60])"'
 ```
+
+**3-state classification (use this in §2 of every 2h report):**
+
+| Cron firing? | LLM executing? | LLM verdict | Open assigned Issues? | Diagnosis | 报告标注 |
+|---|---|---|---|---|---|
+| ✅ fresh .md | ✅ >50 KB | `[SILENT]` | ❌ none | healthy idle | 🟢 |
+| ✅ fresh .md | ✅ >50 KB | `[SILENT]` | ✅ open + last_verdict_age > 48h + last_verdict_actor ≠ self | **stale-verdict deadlock** | 🔴 |
+| ✅ fresh .md | ✅ >50 KB | doing work | any | healthy active | 🟢 |
+| ❌ no new .md | — | — | any | **cron dead / Gateway down** | 🔴 |
+| ✅ fresh .md | ❌ <1 KB or empty | — | any | **script crashed** | 🔴 |
+
+The 🟢/🔴 label in §2 红黄绿灯风险 should reflect the diagnosis, not just activity. **Two consecutive 2h reports where the diagnosis is "stale-verdict deadlock" → escalate to PM intervention** (派单 in #8 / Iron Rule #8 ping). Full deadlock diagnostic + recipe in `agent-task-polling/references/stale-verdict-deadlock.md`.
+
+### 2.6 UPPERCASE cron job duplicate trap (learned 2026-07-15)
+
+Discovered in `handsome_company_developer/cron/jobs.json`: the `last_status` field can lie when there are duplicate cron job registrations with different name casings.
+
+**Symptom:** `oneplusn-DEV-task-polling` (UPPERCASE) shows `last_status=error`, but `oneplusn-dev-task-polling` (lowercase) shows `last_status=ok` AND its output dir is full of fresh `.md` files. The "error" is a stale state field from an earlier registration; the script is actually firing fine.
+
+**Diagnostic:** `last_status=error` alone is not enough. Always pair with the output-dir freshness check (§2.5 Step A) before declaring cron dead.
+
+**Fix path (only if confirmed false alarm):** `hermes cron delete <job_id>` for the duplicate job, then verify only one registration remains. Do NOT trust `last_status` as the sole signal — it's a state field that lags the actual firing.
+
+**Canonical 5-line health check (run for each profile before the report):**
+
+```python
+import json, os
+for prof in ['handsome_company_developer','handsome_company_reviewer','handsome_company_manager']:
+    p = f'C:/Users/Administrator/AppData/Local/hermes/profiles/{prof}/cron/jobs.json'
+    if not os.path.isfile(p): print(prof, 'NO jobs.json'); continue
+    d = json.load(open(p, encoding='utf-8'))
+    for j in d['jobs']:
+        wd = j.get('workdir','')
+        out_dir = os.path.join(f'C:/Users/Administrator/AppData/Local/hermes/profiles/{prof}', 'cron/output', j.get('id','?'))
+        latest = ''
+        if os.path.isdir(out_dir):
+            files = sorted(os.listdir(out_dir))
+            if files: latest = files[-1]
+        wd_ok = 'OK' if (not wd or os.path.isdir(wd)) else 'MISSING'
+        print(f"  {j['name'][:40]:<40} sched={j['schedule'].get('display','?')[:12]:<12} last_status={str(j.get('last_status','null'))[:8]:<8} wd={wd_ok} latest_output={latest}")
+```
+
+This is the §3 contribution-table backbone: each row's "本期动作" can now cite the latest `.md` filename + verdict, not just "0 action".
 
 ---
 
@@ -141,6 +195,8 @@ Stick to the exact structure the boss provided. Don't reformat. Boss has been ex
 6. **摸鱼信号** — dev/reviewer with 0 commit + 0 评论 + 0 PR action in 2h = "无活动,待观察"; two consecutive 0-activity reports = "🔴 摸鱼嫌疑".
 7. **风险等级** — 🔴 阻塞交付 / 🟡 进度慢但有推进 / 🟢 健康.
 
+**Refinement to rule 6 (learned 2026-07-15):** "0 活动" alone is no longer sufficient — must distinguish "0 活动 + cron dead" (🔴 cron died, restart Gateway) from "0 活动 + cron firing + [SILENT]" (🟢 healthy OR 🔴 stale-verdict deadlock). Use the 3-state classification in §2.5 to label correctly.
+
 ---
 
 ## 4. Computing "Activity in 2h" (the 摸鱼 calculation)
@@ -158,9 +214,11 @@ Per-employee activity in the 2h window = sum of:
 
 **Cross-employee handoff (the 2h-ratchet):** if dev was active 2h ago and the work landed in reviewer's lap, and reviewer has been active since, that's NOT a 摸鱼 signal for either — it's the handoff completing. The report should describe the handoff state, not flag either side as idle.
 
+**Cron-firing silent clarification (learned 2026-07-15):** a dev/reviewer returning `[SILENT]` on every cron tick while cron is firing is NOT 摸鱼 if there are no open assigned Issues with stale verdicts (i.e. genuine idle). It IS the stale-verdict deadlock if there are open assigned Issues with `last_verdict_age > 48h` from the OTHER side. Always run the §2.5 3-state classification before tagging "摸鱼".
+
 ---
 
-## 5. Pitfalls (LESSONS LEARNED — 2026-07-14 first run)
+## 5. Pitfalls (LESSONS LEARNED)
 
 1. **Don't trust "everything is closed" from a quick `gh issue list` head check.** The first run on 2026-07-14 saw "all issues closed" in 8 of 8 visible rows, but #8 (P1 verification + 铁规 #7 policy) was still OPEN, and 3 PRs (#13/#14/#15) were OPEN. Always count OPEN issues explicitly and the 4-quarter summary at the top.
 
@@ -182,6 +240,12 @@ Per-employee activity in the 2h window = sum of:
 
 10. **The PM is allowed to do nothing in 2h, and that IS a signal.** If dev is firing and reviewer is firing, the PM may legitimately have zero direct action — the 摸鱼 signal only applies to dev/reviewer, not PM. The PM's column in §3 should list "派单 / 拍板 / 报告" actions; "none" is a valid value and means "team is self-driving, PM is observing".
 
+11. **Don't diagnose "cron dead" from "no GitHub activity" alone (added 2026-07-15).** The PM #11 report made this error. The correct diagnostic is the 3-state classification in §2.5 — check output-dir freshness + LLM verdict tail + open assigned Issues. "No GitHub activity for 22h" can mean: (a) cron dead, (b) stale-verdict deadlock, (c) genuinely no work AND no assigned open Issues. Three very different states with three very different fixes.
+
+12. **UPPERCASE cron duplicates show stale `last_status=error` (added 2026-07-15).** When historical on-boarding scripts registered jobs in two naming conventions, the duplicate UPPERCASE jobs carry stale error state from earlier failures even when the actual script is firing fine. Pair `last_status=error` with the §2.5 freshness check before acting on it.
+
+13. **Cross-check PRs against closed Issues (added 2026-07-15).** PR #14 / #15 were OPEN 24h+ while Issues #6 / #7 were already CLOSED — the "Issue closed ≠ PR merged" anti-pattern. Always include a PR column in the 进度矩阵 with explicit `state` (OPEN/MERGED/CLOSED), and flag in §2 any PR that has been OPEN > 24h with its Issue already closed.
+
 ---
 
 ## 6. The 5 Numbers That Always Go in §0 (一页速读)
@@ -196,6 +260,8 @@ Every 2h report must include the 5 numbers below in the 健康度 table. The bos
 | Last Issue/PR activity (2h window) | comment count from §2.4 |
 | Number of 🔴 items in §2 | count from the 风险 table |
 
+**Added 2026-07-15:** add a 6th number when relevant — **cron liveness diagnosis** from §2.5. If "stale-verdict deadlock", the 6th row should say so explicitly (e.g. "team deadlock: 22h49m since last external action, cron firing every 30min, LLM [SILENT]"). Boss uses this to distinguish "system down" from "team stuck waiting on each other".
+
 ---
 
 ## 7. See Also
@@ -205,4 +271,5 @@ Every 2h report must include the 5 numbers below in the 健康度 table. The bos
 - `references/cron-polling-behavior.md` — the 30-min task-polling cron, with the MSYS `gh api` gotcha and the `[SILENT]` protocol
 - `references/windows-msys-tooling.md` §Pitfall 4 — MSYS path rewrite (the `MSYS_NO_PATHCONV=1` fix)
 - `references/pm-operations-playbook.md` — full worked examples of dispatch / audit / 拍板
+- `agent-task-polling/references/stale-verdict-deadlock.md` — full diagnostic + Iron Rule #8 candidate (referenced from §2.5)
 - `SKILL.md` §"Pitfall: Cron workdir drift is silent until it isn't" — when `git log` returns empty in the wrong workdir

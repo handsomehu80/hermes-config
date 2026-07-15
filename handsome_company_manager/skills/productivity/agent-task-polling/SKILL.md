@@ -80,6 +80,7 @@ The session's GitHub login (e.g. `handsomehu80`) often differs from the bot pers
 | empty | none | output `[SILENT]` |
 | empty | yes | process the drift → structured report |
 | non-empty | any | investigate each notification |
+| empty | none, BUT last_verdict_age > Nh AND last_verdict_actor ≠ self | **stale-verdict deadlock** → ping once, do NOT `[SILENT]` |
 
 ## Output Format (cron delivery)
 
@@ -95,6 +96,7 @@ The session's GitHub login (e.g. `handsomehu80`) often differs from the bot pers
 - **Skipping the `events` endpoint** → misses label changes that don't bump `updated_at`
 - **Skipping `/notifications`** → misses @mentions and review requests that don't appear in assigned issues
 - **Loading anchor from a separate state file** when the previous cron output already records it → unnecessary I/O
+- **Stale-verdict deadlock** (learned 2026-07-15, dev+reviewer at 22h+ `[SILENT]` while cron fired every 30 min and the LLM responded with `[SILENT]` each tick): when side A writes a verdict ("NEEDS_WORK — waiting on side B"), and side B's poll template classifies that verdict as "no new feedback from A since my last comment" → side B returns `[SILENT]`. Side A's next poll does the symmetric check. **Both sides `[SILENT]` forever** despite the cron firing every tick and the LLM executing every time. The anchor-state short-circuit assumes "no drift = no work" — that's true for **inert** state but **wrong for asymmetric wait states** (one side IS waiting on the other, but the wait-signal doesn't look like a new comment from the polling side's perspective). Diagnose by reading the LAST line of the latest `<profile_home>/cron/output/<job_id>/*.md` — if it ends with `[SILENT]` AND `cron output` is fresh AND there are open issues assigned to the polling agent → that's deadlock, not cron death. Fix pattern: include `last_verdict_actor` + `last_verdict_age_hours` in the anchor; if age > N hours AND last verdict was the OTHER side → emit a ping ("this Issue is X hours stale, please confirm whether action is needed") instead of `[SILENT]`. Candidate Iron Rule #8: *stale-verdict ping* — every open Issue with no anchor drift AND >48h since last verdict must emit one ping per 24h, not silent. See `references/stale-verdict-deadlock.md` for the full diagnostic.
 
 ## Pitfalls
 
@@ -107,4 +109,5 @@ The session's GitHub login (e.g. `handsomehu80`) often differs from the bot pers
 ## See Also
 
 - `references/github-polling-commands.md` — copy-pasteable API snippets with output examples
+- `references/stale-verdict-deadlock.md` — full diagnostic recipe + Iron Rule #8 candidate (cron firing but both sides `[SILENT]` indefinitely)
 - `templates/anchor-state.json` — anchor state template
