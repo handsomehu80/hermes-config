@@ -95,6 +95,8 @@ If `[SILENT]` keeps firing for days on the same smoke-test Issue, **that is corr
 
 **Verified pattern (2026-07-10):** Smoke Test Issue #2 in `handsome-s-company/agent_workflow` was assigned to `Handsome-Manager` on 2026-07-09. PM's welcome comment at 2026-07-09T12:22:24Z, last activity 2026-07-09T12:22:34Z. The next day's poll at the same offset fired `[SILENT]` because no one else had commented. Correct.
 
+**Re-confirmed (2026-07-16, 7 days idle):** Same Issue #2, PM cron tick at the standard 15/45 cadence. No new comments, no label change, `updatedAt` still 2026-07-09T12:22:34Z. Correctly fired `[SILENT]` again. The other open issue (#8, P1) is assigned to `Handsome-Review`, NOT to the PM persona — so even the "is this my problem?" check must be persona-based, not CLI-account-based. Confirms §2's `--assignee <persona>` rule holds across weeks of inactivity, not just the first poll.
+
 ---
 
 ## 6. Pitfalls

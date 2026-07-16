@@ -279,7 +279,7 @@ These hit during real syncs and will hit again. Full reproduction recipes in [`r
 4. **`rm -rf /path` triggers a "recursive delete" approval** — prefer `mkdir -p` into a fresh name.
 5. **`cp -rf src dst` semantics differ from Unix** — trailing slash on `dst/` means "copy contents into"; without it, can rename `src` into `dst/src`.
 6. **`/tmp` is mounted to `%LOCALAPPDATA%\Temp`** — don't confuse with `C:\tmp\` (separate directory).
-7. **CRLF vs LF normalization** — `git status` warns "LF will be replaced by CRLF". Committed blob (LF) is always smaller than working-copy file (CRLF). Expected, not corruption.
+7. **CRLF vs LF normalization** — `git status` warns "LF will be replaced by CRLF". Committed blob (LF) is always smaller than working-copy file (CRLF). Expected, not corruption. **Pro tip:** set `git config core.autocrlf false` (and `core.safecrlf false` if needed) on the staging clone **before** running `sync_profile.py`. Without this, every text file copied from Windows shows up as "modified" in `git status --short` due to line-ending mismatch, even though `git diff --cached --shortstat` correctly reports zero real content changes after staging (e.g. `wc -l` of `git status --porcelain` returns 615 but `--diff-filter=M` returns 8). Setting `core.autocrlf=false` upfront keeps the diff signal-to-noise high — you can answer "is there actually a change?" by counting porcelain entries instead of having to mentally subtract 400+ CRLF-only phantom rows.
 8. **`Path("/c/Users/...")` becomes a UNC path** (`\\c\Users\...`) when Python is invoked from MSYS bash. Always use `Path("C:/Users/...")` (forward slashes) for paths inside Python scripts. `bash /tmp` itself is `C:\Users\Administrator\AppData\Local\Temp\` (or whatever `%LOCALAPPDATA%` resolves to for the user) — `C:\tmp` is a separate directory that may not exist.
 9. **`write_file` with a relative path** in `terminal`/`patch` tools resolves against the **active workspace** (e.g. `~/.hermes/profiles/<name>`), not the bash `cwd`. If a file needs to land in `bash /tmp` (e.g. `C:/Users/Administrator/AppData/Local/Temp/...`), pass an absolute path. A script that "can't be found" by `python <path>` after `write_file` usually means the file went to a different tree.
 10. **Python output is line-buffered to stderr/stdout even with `tee`** — when a long-running script pipes to `tee push_log.txt`, the log file may not update for 30+ seconds even though work is happening. Run with `python -u` (unbuffered) or `PYTHONUNBUFFERED=1` so progress prints in real time. This is a Python quirk, not MSYS.
@@ -360,6 +360,31 @@ for root, dirs, files in os.walk(PROFILE):
 **Detection before the push:** if you see files like `skills/.../scripts/.git/objects/11/abcdef...` in the diff, that's the symptom. The check above prevents it; if it's already too late, just drop them from the diff JSON before pushing.
 
 Full context in [`references/contents-api-pitfalls.md`](references/contents-api-pitfalls.md) § Pitfall 3a.
+
+### Push rejected with "fetch first" — clean rebase-and-push flow (NEW 2026-07-15)
+
+The backup cron runs as one short-lived session: clone → sync → commit → push. If another employee's backup cron (or a manual commit) lands on `main` between your `git clone` and your `git push`, the push fails with:
+
+```text
+ ! [rejected]        main -> main (fetch first)
+error: failed to push some refs to 'https://github.com/<owner>/<repo>.git'
+hint: Updates were rejected because the remote contains work that you do not
+hint: have locally.
+```
+
+**Don't merge** — `git pull` followed by `git push` creates a merge commit that pollutes a backup repo's linear history. **Rebase instead:**
+
+```bash
+git fetch origin                                       # download remote-only commits
+git log --oneline HEAD..origin/main                    # verify they're siblings, not your work
+git pull --rebase origin main                          # replay your commit on top of remote tip
+git log --oneline -5                                   # confirm your commit is now at the tip
+git push origin main                                   # fast-forward succeeds
+```
+
+**Why rebase is safe here:** sibling backup commits touch a different `<profile>/` subdir, so the rebase has no conflicts. If two commits touched the same path (e.g. both modified the repo-level `README.md`), rebase surfaces a conflict — abort with `git rebase --abort` and investigate before retrying. With the cron timeout being short, do NOT try to resolve merge conflicts in-cron; abort and let the next tick re-run the full sync.
+
+**Verify after push:** `gh api repos/<owner>/<repo>/commits/<sha>` returns your commit at the tip with the expected author + timestamp + file counts. If `gh api` shows a different SHA, the push actually pushed the rebase result, not the pre-rebase commit — recompute the SHA from `git rev-parse HEAD` after the push.
 
 ---
 

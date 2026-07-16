@@ -184,6 +184,27 @@ The boss explicitly listed these as required:
 
 14. **First-day report label is mandatory** (refinement of #2). When §5 has no real yesterday baseline, write the section header as `## 5. 跨日趋势(对比昨日报告 — 首次日报,无对比基线)`. Don't quietly skip the section; don't fabricate numbers. If you have *some* data from yesterday's cron-output dir (even partial), label it `部分基线` and only show Δ rows where you have both endpoints.
 
+15. **`gh issue list --json comments` returns an ARRAY of comment OBJECTS, not a count** (learned 2026-07-16). When you run `gh issue list ... --json number,comments`, the `comments` field comes back as `[{id, author, body, ...}, ...]` — an array of full comment records — not an integer count. Using it in an f-string with `{cmts:>2}` blows up with `TypeError: unsupported format string passed to list.__format__`. **Fix options:**
+    - Drop `comments` from the `--json` list and count separately via `gh api 'repos/<org>/<repo>/issues/comments?since=...' | jq length`
+    - If you keep it, convert with `cmts = len(i.get('comments') or [])` before formatting
+    - Don't assume any field name in `--json` is a count — `--json reactions`, `--json labels` also return arrays of objects, not counts
+
+16. **`gh issue list --json` uses camelCase; `gh api .../issues/comments` uses snake_case** (learned 2026-07-16). Same data point has different key names depending on which gh surface you query:
+    - `gh issue list --json` → `createdAt`, `updatedAt`
+    - `gh api 'repos/<org>/<repo>/issues/comments'` → `created_at`, `updated_at`, `user` (object, not `author`)
+    
+    Mixing the two in one script (e.g. listing issues via CLI then paging comments via API) requires per-source key names. **Fix:** pick one source and stick with it, or write a tiny adapter:
+    ```python
+    def normalize_camel(d): return {k.replace('At','_at'): v for k,v in d.items()}
+    ```
+
+17. **Cron schedule is interpreted in LOCAL time, not UTC** (learned 2026-07-16, contradicts the deployment intent). The `pm-daily-evening-report` job has `schedule: "0 15 * * *"`. The deployment spec claims this means "15:00 UTC = 23:00 CST", but on this Windows host the cron ticker runs the schedule in **local CST time**. The job's `last_run` timestamps (e.g. `2026-07-16T15:08:02+08:00`) confirm it fires at **15:00 CST = 07:00 UTC**, not 23:00 CST. **Consequence:** the §6 "明日期望触发" table and §1 "今日做了什么" window need to be anchored to the ACTUAL fire time, not the UTC interpretation. If your windows are `[15:00 UTC D-1, 15:00 UTC D]`, they're off by 8 hours. **Fix options (any one):**
+    - Re-anchor the 24h window to the actual local fire time (e.g. `[2026-07-15 15:00 CST, 2026-07-16 15:02 CST]`) and convert UTC event timestamps to CST before comparing
+    - Fix the cron schedule to `0 23 * * *` for 23:00 CST (= 15:00 UTC) — but this requires editing `jobs.json` AND restarting the Gateway (see SKILL.md "Gateway restart is required to pick up newly-registered cron jobs")
+    - Verify `last_run` timestamp in jobs.json before assuming the schedule interpretation; on Windows + Hermes cron it has been local-time
+    
+    Don't trust the schedule string alone. Cross-check with the most recent `cron/output/<job_id>/*.md` timestamp.
+
 ---
 
 ## 6. Daily-Report-Specific Operational Checks

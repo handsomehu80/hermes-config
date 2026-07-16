@@ -124,6 +124,23 @@ Two scripts run on schedule via `hermes cron`:
 
 The polling logic lives in `scripts/onboard_agent.py` (and `scripts/setup_cron.py` for legacy crontab). With Hermes cron, the cron job itself lives in `state.db`, survives restarts, and shows in `hermes cron list`.
 
+13. **Duplicate cron registration — uppercase `REVIEW-*` vs lowercase `rev-*` jobs coexist for the same employee** (learned 2026-07-15, on the bi-hourly PM report run). When `oneplusn` registers cron jobs via `hermes cron add`, you may end up with **two registrations per employee per job type**: e.g. both `oneplusn-rev-task-polling` and `oneplusn-REVIEW-task-polling` exist in `<profile_home>/cron/jobs.json`, same prompt, same schedule, same offset minutes — but:
+    - lowercase `rev-*`: `script: None, no_agent: false` → runs the prompt directly → **works** (`last_status=ok`)
+    - uppercase `REVIEW-*`: `script: poll.sh, no_agent: true` → wraps in a shell script → **fails** with exit 1 every tick (`last_status=error`)
+    
+    Symptom: `cron/output/<uppercase-job-id>/` is full of `script failed` marker files; `jobs.json` shows two jobs per type with the same name mod case; the LLM is actually working fine because the lowercase job is doing the real work. Detection — run `references/cron-health-audit.md` (Python snippet) — count marker files (`*.md` < 1000 bytes) in `cron/output/`. Real LLM runs are 15-50 KB; markers are 150-200 bytes. If you see 68 markers of `script failed` in 24h but the LLM-side status is `last_status=ok`, that's the duplicate-registration pattern.
+    
+    Fix: `hermes cron rm <uppercase-job-id>` for each of the 3 uppercase jobs (`task-polling`, `config-backup`, `memory-cleanup`) on each profile. Then `oneplusn sync` to regenerate README. Until cleanup, the system works functionally — but `jobs.json` noise makes health-dashboards misclassify the employee as broken.
+
+14. **`terminal()` cannot reliably read Windows paths even with `MSYS_NO_PATHCONV=1`** (learned 2026-07-15, PM bi-hourly run). When you need to inspect files under `C:/Users/Administrator/AppData/Local/hermes/profiles/...`, `cat "C:/..."` and `ls "C:/..."` often fail in `terminal()` because MSYS still mangles the path translation despite the env var. **Use `execute_code` with Python's `pathlib.Path`** instead — it's the only reliable way:
+    ```python
+    from pathlib import Path
+    p = Path("C:/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/cron/jobs.json")
+    import json
+    d = json.loads(p.read_text(encoding='utf-8'))
+    ```
+    Same for `gh api /repos/...` calls — MSYS rewrites the leading `/` to a Windows filesystem path even inside the GitHub endpoint. **Always use `gh api repos/...`** (no leading slash) instead. `MSYS_NO_PATHCONV=1 gh api ...` works for some shells but not all quoting contexts.
+
 **Gateway restart is required to pick up newly-registered cron jobs** (learned 2026-07-13). The cron ticker in each profile's Gateway process reads `<profile_home>/cron/jobs.json` once at startup — it does NOT poll for new entries. So when you `hermes cron add --profile <name> ...` for a brand-new employee, the cron lands in the right file, but the running Gateway (the one started yesterday at 22:51 by the scheduled task) keeps ticking the OLD jobs list. Symptom: `hermes cron list` (in the right profile) shows the new job, but the cron output dir `<profile_home>/cron/output/<job_id>/` stays empty for hours. Fix:
 
 ```bash
@@ -232,6 +249,7 @@ python -c "import json; d=json.load(open(r'C:/Users/Administrator/AppData/Local/
   [print(j['name'], j['schedule']['display'], j.get('last_status','null')) for j in d['jobs']]"
 # → if any cron shows last_status='error' AND output dir has no .md for 24h+, it's a zombie
 # → if any cron shows last_status=None AND was registered >24h ago, registration is broken
+# → if cron marker count > expected ticks/24h, see references/cron-health-audit.md — likely duplicate registration (Known Fix #13)
 ```
 
 Weekly:
@@ -423,7 +441,8 @@ Distinct from PM Mode (strategic analysis). This section covers the **ongoing op
 - `references/pm-bi-hourly-status-report.md` — **PM's recurring 2h status report cadence** (distinct from task-polling and from PM Mode). Includes the Windows-safe data-collection commands (with the `gh api` 30-comment-default trap and the MSYS path-rewrite fix), the boss's mandatory 6-section report template, the 摸鱼信号 0/3+ rule, and the 5 numbers §0 must always show. Load this on every PM 2h cron tick — the one-sentence cron prompt is not enough on its own.
 - `references/pm-daily-evening-report.md` — **PM's once-per-day end-of-day report cadence** (typically 23:00 CST = 15:00 UTC). 24h rolling window, ≤2500 字 budget, includes the "Δ vs yesterday" cross-day comparison pattern. Two new gotchas vs the 2h report: (a) `gh api .../issues` returns PRs too — must filter `select(.pull_request == null)`; (b) `last_status=None` (never fired) vs `last_status=error` (fired and failed) are different signals — see §2.3 of that file. Load this on every PM daily cron tick.
 - `references/pat-validation.md` — safely validate an employee PAT without printing it: token validity, account ownership, private-repo permissions, credential precedence, fresh-process restart, and polling smoke test.
-- [`references/deployment-checklist.md`](references/deployment-checklist.md) — pre-flight Q bundle + blocker chain + verify-gh-auth pattern + the post-unblock runbook. Read this BEFORE the user's first deploy to avoid bouncing through blockers one at a time.
+- See [`references/deployment-checklist.md`](references/deployment-checklist.md) — pre-flight Q bundle + blocker chain + verify-gh-auth pattern + the post-unblock runbook. Read this BEFORE the user's first deploy to avoid bouncing through blockers one at a time.
+- [`references/cron-health-audit.md`](references/cron-health-audit.md) — verified Python snippet for counting cron marker files (script-failed / silent / ok) and diagnosing duplicate-registration or wrapper-broken states. Use this whenever `jobs.json last_status` looks wrong or the bi-hourly report needs to confirm "is the team actually working?"
 - [`references/team-deployment-playbook.md`](references/team-deployment-playbook.md) — **end-to-end recipe for turning a 3-employee `handoff.yaml` into a fully-running 1+N team**. Covers: per-employee PAT collection, the concatenated-token redactor-bypass pattern, the `os.replace` write workaround, registering offset-staggered cron jobs (PM 15/45, dev 0/30, reviewer 10/40), resolving the missing `origin` remote and unrelated-history merge, killing stale `pythonw.exe` gateways via PowerShell, and the manual smoke-test command for each profile. Load this when on-boarding employees after `oneplusn init` but before any cron has actually fired.
 - [`references/github-pat-verification.md`](references/github-pat-verification.md) — **3-step fine-grained PAT verification recipe + secret-redactor workaround + `env -u GITHUB_TOKEN` gotcha + `hermes cron run` ticks-not-immediately behavior**. Load this any time you're rotating a worker's GitHub PAT, debugging `Bad credentials` / `Not Found` from `gh`, or trying to write a token to a `.env` file. The redactor interference (§2) and the env-var pollution (§3) are non-obvious and routinely eat hours if you don't know them.
 - [`references/windows-msys-tooling.md`](references/windows-msys-tooling.md) — **Windows git-bash / MSYS tooling cheatsheet**: `\\${var}` doesn't expand in bash double-quotes; never use `icacls /T` on profile dirs (it recurses into the whole hermes tree); `hermes_tools` blocks reading `.env` so use `terminal` for credential inspection; safe ACL tightening via `scripts/tighten_acls.ps1` (PowerShell, no recursion). Load this any time you're writing bash that touches Windows paths, tightening `.env` ACLs, or trying to inspect a credential file.

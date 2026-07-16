@@ -9,23 +9,25 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-14** — no entries in MEMORY.md carried an
-> internal date older than the 30-day cutoff (2026-06-14). All
-> dated entries in MEMORY.md are 2026-07-08 or later and stay
-> in active memory. All other MEMORY.md entries are undated
-> environment-state facts (host, model, API keys, agent team,
-> user trust rule) and stay in place per the "no internal date
-> → don't archive on mtime" rule. USER.md left in place — it
-> stores timeless user-profile facts, not dated operational
-> memory, so the mtime-based rule does not apply. Hindsight
-> `reflect()` skipped for this run per skill guidance — 4th
-> consecutive same-signature environmental failure (HF Hub
-> cross-encoder download + embedded pg0 init), same as the
-> three prior runs; the 3-action remedy (HF_TOKEN /
-> `local_external` / `cloud`) is still open. No new
-> cross-encoder download was attempted this run per the
-> skill's "don't retry in the same run / same environment"
-> rule.
+> Latest run: **2026-07-15** — no-op archive; no entries in MEMORY.md
+> carried an internal date older than the 30-day cutoff
+> (2026-06-15). The only dated entry in MEMORY.md is
+> `1+N 数字员工集成(2026-07-08)` — 7 days old, well within the
+> 30-day window, stays in active memory. All other MEMORY.md
+> entries are undated environment-state facts (host/model/API
+> keys/agent team/PM iron rules) and stay in place per the
+> "no internal date → don't archive on mtime" rule.
+> USER.md left in place — timeless user-profile facts.
+> Hindsight `reflect()` skipped for this run per skill guidance —
+> 5th consecutive same-signature environmental failure (HF Hub
+> cross-encoder download → embedded pg0 init). The
+> recommended (a) action from 2026-07-13 — set `HF_TOKEN` in
+> `~/.hermes/profiles/handsome_company_manager/.env` — has
+> not been applied; verified empty in this run. The (b)
+> `local_external` and (c) `cloud` options also remain open.
+> Per skill: do NOT retry in the same environment; the
+> markdown archive is the durable source of truth and a
+> skipped `reflect()` loses no data.
 
 ---
 
@@ -84,4 +86,13 @@ trusting this trick.
   - `hindsight` package remains importable; the failure is at the cross-encoder download step (HF Hub HEAD timeout) cascading into the embedded pg0 init, not at the LLM init or provider validation.
   - `~/.hindsight/profiles/` has zero `.lock` files — no stale lock to clean.
   - Markdown archive remains the sole source of truth; no MEMORY.md entries with an internal date older than 2026-06-14 exist. The 7-13 cutoff (2026-06-13) was actually 31 days back — bumped to a strict 30-day window this run for clarity.
-- Next scheduled cleanup: per the cron job cadence. Boss-driven action items for unlocking `reflect()`: see 2026-07-13 housekeeping (a/b/c).
+- 2026-07-15 — no-op. Hindsight reflect **skipped** per skill guidance (5th consecutive same-signature run). Confirmed:
+  - `~/.hindsight/profiles/handsome_company_manager.log` mtime is still **2026-07-12 21:54** — no new Hindsight activity since then (consistent with the 7-13/7-14 "skip" runs and this 7-15 "skip" run).
+  - `HF_TOKEN` is **still NOT set** in `~/.hermes/profiles/handsome_company_manager/.env` — verified directly from the file. The 2026-07-13 recommended action item (a) is still pending. Until boss picks (a) / (b) / (c), Hindsight `reflect()` will keep skipping per skill guidance ("don't retry in the same environment").
+  - No new MEMORY.md entries with internal date older than 2026-06-15; the only dated entry (`1+N 数字员工集成(2026-07-08)`) is 7 days old and stays active.
+  - `~/.hindsight/profiles/` has zero `.lock` files — no stale lock to clean.
+  - **Boss action still open** (one of):
+    a) Set `HF_TOKEN=hf_***` in `~/.hermes/profiles/handsome_company_manager/.env` for higher HF rate limits + authentication, then retry on next cron tick.
+    b) Switch Hindsight to `mode: local_external` — run `hindsight_api` as a separate container / process outside the cron, separating the model-download lifecycle from the cron tick.
+    c) Switch to `mode: cloud` if a hosted Hindsight endpoint is available.
+- Next scheduled cleanup: per the cron job cadence. Boss-driven action items for unlocking `reflect()`: see 2026-07-13 + 2026-07-15 housekeeping (a/b/c).

@@ -246,6 +246,14 @@ Per-employee activity in the 2h window = sum of:
 
 13. **Cross-check PRs against closed Issues (added 2026-07-15).** PR #14 / #15 were OPEN 24h+ while Issues #6 / #7 were already CLOSED — the "Issue closed ≠ PR merged" anti-pattern. Always include a PR column in the 进度矩阵 with explicit `state` (OPEN/MERGED/CLOSED), and flag in §2 any PR that has been OPEN > 24h with its Issue already closed.
 
+14. **`gh issue list --json comments` returns an ARRAY, not a count** (added 2026-07-16). When you query `gh issue list ... --json number,comments`, the `comments` field is `[{id, author, body, ...}, ...]` — an array of full comment records, not an integer count. The §2.1 commands avoid this by using `--jq` projection explicitly, but if you ever want a comment count via `gh issue list --json`, drop `comments` from the field list and use `gh api 'repos/<org>/<repo>/issues/comments?per_page=100&...'` (with the §2.4 pagination fix) instead. Same trap exists for `--json reactions`, `--json labels`, and `--json assignees` — all return arrays of objects, never counts.
+
+15. **`gh issue list --json` uses camelCase keys; `gh api` uses snake_case** (added 2026-07-16). Same data point has different names depending on which gh surface you query:
+    - `gh issue list --json` → `createdAt`, `updatedAt`
+    - `gh api 'repos/<org>/<repo>/issues/comments'` → `created_at`, `updated_at`
+    
+    If you mix the two surfaces in one report (e.g. §2.1 uses CLI, §2.4 uses API), use per-source key names or normalize. The §2.1 `--jq` projection in this file uses the camelCase keys; the §2.4 `--jq` projection uses snake_case — both are correct for their respective source. Don't mix them.
+
 ---
 
 ## 6. The 5 Numbers That Always Go in §0 (一页速读)
