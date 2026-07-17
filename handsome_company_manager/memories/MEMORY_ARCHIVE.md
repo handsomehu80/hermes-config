@@ -9,25 +9,38 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-15** — no-op archive; no entries in MEMORY.md
+> Latest run: **2026-07-16** — no-op archive; no entries in MEMORY.md
 > carried an internal date older than the 30-day cutoff
-> (2026-06-15). The only dated entry in MEMORY.md is
-> `1+N 数字员工集成(2026-07-08)` — 7 days old, well within the
+> (2026-06-16). The only dated entry in MEMORY.md is
+> `1+N 数字员工集成(2026-07-08)` — 8 days old, well within the
 > 30-day window, stays in active memory. All other MEMORY.md
 > entries are undated environment-state facts (host/model/API
 > keys/agent team/PM iron rules) and stay in place per the
 > "no internal date → don't archive on mtime" rule.
 > USER.md left in place — timeless user-profile facts.
 > Hindsight `reflect()` skipped for this run per skill guidance —
-> 5th consecutive same-signature environmental failure (HF Hub
-> cross-encoder download → embedded pg0 init). The
-> recommended (a) action from 2026-07-13 — set `HF_TOKEN` in
-> `~/.hermes/profiles/handsome_company_manager/.env` — has
-> not been applied; verified empty in this run. The (b)
-> `local_external` and (c) `cloud` options also remain open.
-> Per skill: do NOT retry in the same environment; the
-> markdown archive is the durable source of truth and a
-> skipped `reflect()` loses no data.
+> 6th consecutive same-signature environmental failure pattern
+> (HF Hub cross-encoder download → embedded pg0 init).
+> Verified this run: (a) `HF_TOKEN` still NOT set in
+> `~/.hermes/profiles/handsome_company_manager/.env`
+> (confirmed by direct file read), (b) Hindsight mode still
+> `local_embedded` (would re-trigger cross-encoder download),
+> (c) `~/.hindsight/profiles/handsome_company_manager.log`
+> mtime is still **2026-07-12 21:54** — no new Hindsight
+> activity since the last attempt 4 days ago, consistent
+> with the 7-13/7-14/7-15 skip pattern.
+> `~/.hermes/hindsight/config.json` is now MISSING (was
+> present on 7-11 with `openai_compatible`, but a fresh
+> install/migration likely removed it). The Hindsight
+> Python constructor reads provider/model/key/api_base
+> from kwargs + env vars, so the missing config.json does
+> not change the failure mode — daemon still attempts
+> `cross_encoder.initialize()` and trips on HF Hub HEAD
+> timeout → cascading `PostgreSQLBackend is not initialized`.
+> `~/.hindsight/profiles/` has zero `.lock` files — no stale
+> lock to clean. The markdown archive is the durable source
+> of truth; a skipped `reflect()` loses no data, only defers
+> the optimization step until the boss applies (a/b/c).
 
 ---
 
@@ -95,4 +108,13 @@ trusting this trick.
     a) Set `HF_TOKEN=hf_***` in `~/.hermes/profiles/handsome_company_manager/.env` for higher HF rate limits + authentication, then retry on next cron tick.
     b) Switch Hindsight to `mode: local_external` — run `hindsight_api` as a separate container / process outside the cron, separating the model-download lifecycle from the cron tick.
     c) Switch to `mode: cloud` if a hosted Hindsight endpoint is available.
-- Next scheduled cleanup: per the cron job cadence. Boss-driven action items for unlocking `reflect()`: see 2026-07-13 + 2026-07-15 housekeeping (a/b/c).
+- 2026-07-16 — no-op (today). Hindsight reflect **skipped** per skill guidance (6th consecutive same-signature pattern; 4th consecutive explicit skip after the 7-11/7-12 two failed attempts). Confirmed:
+  - `~/.hindsight/profiles/handsome_company_manager.log` mtime is still **2026-07-12 21:54** — **4 days** since the last Hindsight attempt, consistent with all 7-13/7-14/7-15 skip runs.
+  - `HF_TOKEN` is **still NOT set** in `~/.hermes/profiles/handsome_company_manager/.env` — re-verified directly from the file (read all 33 env keys; HF_TOKEN absent). The 2026-07-13 recommended action item (a) is still pending.
+  - `~/.hermes/hindsight/config.json` is **MISSING** (was present on 7-11 with `openai_compatible`). Either a fresh install/migration removed it, or the `oneplusn` deploy never re-created it. The Hindsight Python constructor reads provider/model/key/api_base from kwargs + env vars, so the missing config.json does NOT change the failure mode — `cross_encoder.initialize()` would still be invoked and trip on HF Hub HEAD timeout → cascading `PostgreSQLBackend is not initialized`.
+  - `~/.hindsight/profiles/` has zero `.lock` files — no stale lock to clean.
+  - Stale `MEMORY.md.lock` (3 days old, 0 bytes) and `USER.md.lock` (2 days old, 0 bytes) cleaned this run as routine housekeeping — safe to remove since 0 bytes and no process actively holding them.
+  - No new MEMORY.md entries with internal date older than 2026-06-16; the only dated entry (`1+N 数字员工集成(2026-07-08)`) is 8 days old and stays active.
+  - Gateway liveness check: `~/.hermes/profiles/handsome_company_manager/logs/gateway.log` shows last activity 2026-07-15 10:09 (Feishu inbound + agent cache evict); cron ticker started 2026-07-15 02:49. Gateway is alive — the reflect-skip is not due to gateway down.
+  - **Boss action STILL open** (one of): same (a/b/c) as 7-13/7-15. No new evidence suggests the env has changed in a way that would let `reflect()` succeed; the failure signature has been stable for 4 days.
+- Next scheduled cleanup: per the cron job cadence. Boss-driven action items for unlocking `reflect()`: see 2026-07-13 + 2026-07-15 + 2026-07-16 housekeeping (a/b/c).

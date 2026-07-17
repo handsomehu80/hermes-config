@@ -205,6 +205,73 @@ The boss explicitly listed these as required:
     
     Don't trust the schedule string alone. Cross-check with the most recent `cron/output/<job_id>/*.md` timestamp.
 
+18. **`gh api --jq '.[] | {obj}'` returns NDJSON, not a JSON array** (learned 2026-07-17, blocked a real daily-report run). When the jq expression produces an object per input item WITHOUT wrapping it in `[...]` and WITHOUT a stringifying filter like `@tsv`, `gh` emits one JSON object per line (NDJSON). `json.loads(stdout)` then fails with `Extra data: line 2 column 1`. This bites you specifically when you want per-row post-processing in Python (e.g. count per user, format a table) — the obvious `--jq '.[] | {a, b, c}'` form is wrong. **Fix — pick the right output shape:**
+
+    ```bash
+    # OPTION A — emit a JSON ARRAY (one parseable blob, best for downstream JSON work)
+    gh api .../comments --jq '[.[] | {created_at: .created_at, user: .user.login}]'
+
+    # OPTION B — emit NDJSON of TSV rows (one record per line, easy to split+parse)
+    gh api .../comments --jq '.[] | [.created_at, .user.login] | @tsv'
+    ```
+
+    Option B is what worked in this session for the per-user comment counter — line-split on `\n`, then split each line on `\t`. `collections.Counter(parsed_lines)` gave the §4 table directly. Option A is what §2.1 already uses (the `select(.pull_request == null)` example wraps in `[...]` — note the brackets). **Anti-pattern to avoid:** `--jq '.[] | {created_at, user: .user.login, body}'` (object, no brackets, no stringifier) — produces NDJSON that breaks `json.loads()` on the whole blob.
+
+19. **`gh api .../comments?since=<ISO8601>` is the cleanest 24h comment filter** (learned 2026-07-17). Instead of fetching all comments and filtering client-side, pass `since=2026-07-16T15:00:00Z` directly to the API — GitHub filters server-side and returns only comments created at-or-after that timestamp. Combine with Option B from #18 (`@tsv`) for line-parseable per-user counts. **Anti-pattern:** fetching all comments and filtering via Python after — costs context budget on big repos, AND burns an extra API pagination cycle. Note: `since` for issues is `?since=` on the issues endpoint; for comments it's the same query param. Check the GitHub REST docs for which collection supports the filter (most do; per-PR and per-issue-issue comments do).
+
+20. **`git log --pretty=format:%an` + `collections.Counter` gives the §4 commit table directly** (learned 2026-07-17). The §4 "每人当日贡献" row needs per-user commits in 24h. The reliable extraction:
+
+    ```python
+    import subprocess, collections
+    r = subprocess.run(['git', '-C', '<work-dir>', 'log',
+                        '--since=24 hours ago', '--pretty=format:%an'],
+                       capture_output=True, text=True)
+    c = collections.Counter(r.stdout.splitlines())
+    for user, n in c.most_common():
+        print(f"  {user:30s} | {n} commits")
+    ```
+
+    Same pattern works with `--since="7 days ago"` for the §5 cross-day trend baseline. Note `--since` uses the **host clock** (CST on Windows). If your §1 window is UTC-anchored, also pass an explicit `--since="2026-07-16T15:00:00Z"` so git and gh agree on the boundary (see #12). Don't combine `%an` with `%ae` in the format — keep one field per `Counter()` axis. Also note: this host's `git log --author` matches on email substring, so use `%an` (display name) for the §4 attribution and `Counter()` for aggregation; `--author` is only needed when filtering to a specific user.
+
+21. **The cron-output dir is the source of truth for historical reports — search it, don't guess** (learned 2026-07-17, refines §2.2 #5 + #6). The actual recipe to find yesterday's daily report:
+
+    ```python
+    from pathlib import Path
+    base = Path('C:/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/cron/output')
+    for job_dir in base.iterdir():
+        if not job_dir.is_dir(): continue
+        for f in job_dir.iterdir():
+            if f.suffix != '.md': continue
+            try:
+                content = f.read_text(encoding='utf-8', errors='ignore')
+                if 'PM 项目日报' in content or 'PM项目日报' in content:
+                    print(f"FOUND: {f}  ({f.stat().st_size} bytes)")
+            except Exception: pass
+    ```
+
+    After locating the file, extract the §5 cross-day baseline by finding `## Response` (or `rfind('# ')`) and reading 2-3KB after it — the §5 cross-day table is in there. Don't try to identify "the most recent report" by filename sort alone — multiple crons dump `.md` files in the same dir tree (`pm-bihourly-status-report`, `pm-daily-evening-report`, plus employee `task-polling` runs), and date prefixes can collide if a cron fires twice in one day. **Always grep the content for the report's signature phrase** (`PM 项目日报` for daily, `PM 状态` for bi-hourly).
+
+22. **Duplicate-cron detection: marker file COUNT + SIZE confirms the Known Fix #13 pattern** (learned 2026-07-17, corroborates SKILL.md Known Fix #13). Concrete recipe:
+
+    ```python
+    from pathlib import Path
+    from datetime import datetime, timezone, timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    for job_dir in (Path('C:/Users/Administrator/AppData/Local/hermes/profiles/<profile>/cron/output')).iterdir():
+        if not job_dir.is_dir(): continue
+        n_24h = n_marker = 0
+        for f in job_dir.iterdir():
+            if f.suffix != '.md': continue
+            if datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc) >= cutoff:
+                n_24h += 1
+                if f.stat().st_size < 1000:   # real LLM runs are 15-50 KB; markers 150-200 bytes
+                    n_marker += 1
+        if n_marker > n_24h * 0.5 and n_24h > 0:
+            print(f"  {job_dir.name}  🔴 duplicate-registration ({n_marker}/{n_24h} files are <1KB markers)")
+    ```
+
+    In this session's run: dev profile showed `DEV-task-polling` job with 32/32 files as markers (100%), reviewer showed `REVIEW-task-polling` same — exactly matching the Known Fix #13 prediction. **If you see this in §3 of the daily, the system is functionally healthy but the cron list is lying to your health dashboard.** Surface as 🟡 with explicit cleanup steps (`hermes cron rm <uppercase-job-id>` for the 3 uppercase variants per profile).
+
 ---
 
 ## 6. Daily-Report-Specific Operational Checks

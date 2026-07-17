@@ -48,19 +48,60 @@ The `memory()` tool is the normal write path, but **it is not always available**
 
 If the survey finds no 30+ day entries, just update the header + housekeeping (record the no-op). Do not invent entries to archive.
 
+### Housekeeping section structure pitfall (learned 2026-07-16)
+
+The `MEMORY_ARCHIVE.md` housekeeping block grows by appending one `- YYYY-MM-DD — ...` bullet per cron run. **Patch edits must insert at the top level (sibling to prior dates), not as a sub-bullet of the previous date.** A real failure observed: the 7-15 entry was inherited as a sub-bullet under 7-14 (a previous patch matched a too-narrow `old_string` and captured the 7-14 bullet as context), and then 7-16 nested inside 7-15 — a 3-level nesting that is structurally wrong.
+
+**Prevention:** when appending a new run entry, anchor `old_string` to the `## Archive housekeeping` heading + the first `- Created:` line, NOT to the last date's bullet. Verify after edit that all date entries are siblings at the same indentation level (no extra leading spaces before `- YYYY-`). If a nesting bug is found, rewrite the entire `## Archive housekeeping` block at once with all entries at the same level.
+
+## Pre-flight housekeeping (always do before the archive sweep)
+
+These are tiny, fast checks that catch problems BEFORE they cascade into the archive decision. Skipping them has caused silent zombie states in past runs.
+
+1. **Stale `memories/*.lock` cleanup.** The `memory()` tool writes 0-byte `<file>.lock` siblings on every edit; if a previous tool call crashed mid-write, the lock stays. Check:
+   ```python
+   from pathlib import Path
+   from datetime import datetime
+   mem_dir = Path("~/.hermes/profiles/<profile>/memories").expanduser()
+   for lock in mem_dir.glob("*.lock"):
+       st = lock.stat()
+       age_days = (datetime.now() - datetime.fromtimestamp(st.st_mtime)).days
+       if st.st_size == 0 and age_days >= 1:
+           lock.unlink()  # safe — 0 bytes means no actual lock content
+   ```
+   This is **distinct** from `~/.hindsight/profiles/*.lock` (covered later under the reflect pitfalls). Do not confuse the two — `memories/*.lock` = markdown write lock, `~/.hindsight/profiles/*.lock` = Hindsight daemon lock.
+
+2. **Gateway liveness sanity check.** Before declaring a Hindsight skip, confirm the Gateway is actually alive so the skip can't be misattributed to "gateway down":
+   ```python
+   from pathlib import Path
+   from datetime import datetime
+   log = Path("~/.hermes/profiles/<profile>/logs/gateway.log").expanduser()
+   if log.exists():
+       last_mtime = datetime.fromtimestamp(log.stat().st_mtime)
+       age_minutes = (datetime.now() - last_mtime).total_seconds() / 60
+       # Expect fresh activity within last 60 minutes if cron is healthy
+   ```
+   Last `Cron ticker started (interval=60s)` line should be within the last 24h. If the Gateway log is stale, that's a separate issue from the Hindsight reflect failure — record it but don't conflate the two in housekeeping.
+
 ## Hindsight reflect (advanced organization)
 
 When `memory.provider: hindsight` is set in the active profile's `config.yaml` and the bank is reachable, call `reflect()` to consolidate stored memories into a fresh mental model. This is Hindsight's optimization capability.
 
 ### Detect
+
+**Source of truth is the profile `config.yaml`, NOT `~/.hermes/hindsight/config.json`.** The Hindsight Python constructor reads `llm_provider` / `llm_model` / `llm_api_key` / `llm_base_url` from its own kwargs + env vars, so the global `config.json` is just one of several config paths and may be absent on a freshly-migrated profile.
+
 ```yaml
-# ~/.hermes/profiles/<profile>/config.yaml
+# ~/.hermes/profiles/<profile>/config.yaml — AUTHORITATIVE
 memory:
   memory_enabled: true
   provider: hindsight
 ```
+
 ```json
-// ~/.hermes/hindsight/config.json
+// ~/.hermes/hindsight/config.json — OPTIONAL
+// Present on many profiles; ABSENT on freshly-migrated ones.
+// If missing, the Python constructor's kwargs/env vars still drive everything.
 {
   "mode": "local_embedded",
   "bank_id": "hermes",
@@ -68,6 +109,14 @@ memory:
   "llm_model": "MiniMax-M3",
   "llm_base_url": "https://api.minimaxi.com/v1"
 }
+```
+
+**Detection recipe** — check profile yaml first; only check the json if you need to verify defaults:
+```python
+import yaml
+cfg = yaml.safe_load(Path("~/.hermes/profiles/<profile>/config.yaml").expanduser().read_text())
+hindsight_enabled = cfg.get("memory", {}).get("provider") == "hindsight"
+# If False: skip the entire reflect section — Hindsight isn't wired up.
 ```
 
 ### Try
@@ -119,7 +168,8 @@ he.close()
 
 ### Pitfalls
 - **`openai_compatible` is NOT a valid `llm_provider`** in Hindsight's daemon, even though the plugin config may list it. The valid set is: `openai, groq, ollama, ollama-cloud, gemini, anthropic, lmstudio, llamacpp, vertexai, openai-codex, claude-code, mock, none, minimax, deepseek, litellm, litellmrouter, bedrock, volcano, openrouter, requesty, zai, opencode-go, atlas, fireworks, nous`. For `MiniMax-M3` at `api.minimaxi.com/v1` use `minimax` + `llm_base_url=…/v1`. The fastest confirmation is the previous-run log at `~/.hindsight/profiles/<profile>.log` — search for `Invalid LLM provider`.
-- **Stale `.lock` files** in `~/.hindsight/profiles/` block daemon start. Remove them before retrying.
+- **Missing `~/.hermes/hindsight/config.json` is NOT a failure signal.** It is one of several config paths; the Python constructor reads provider/model/key/api_base from kwargs + env vars (`HINDSIGHT_API_LLM_*`). If you see `config.json` absent on a freshly-migrated profile, do NOT panic — the daemon still tries to start. The actual failure modes are the same regardless: cross-encoder download, embedded pg0 init, env vars. The `config.json` only matters when the daemon's defaults need to differ from your constructor kwargs; if you're passing everything explicitly, the json file is redundant.
+- **Stale `.lock` files** in `~/.hindsight/profiles/` block daemon start. Remove them before retrying. (Distinct from `~/.hermes/profiles/<profile>/memories/*.lock` — see Pre-flight housekeeping §1.)
 - **Cross-encoder reranker download can fail after LLM init succeeds.** Hindsight's `local_embedded` mode pulls a CrossEncoder model from HuggingFace during `memory.initialize()`. On hosts with restricted/timeout-prone HF access, this fails with `RuntimeError: Cannot send a request, as the client has been closed.` (or any `httpx` "client closed" error in `cross_encoder.initialize()`). The provider override above is correct — that error is *past* LLM init. **Skip `reflect()` and fall back to markdown archive** for this cron. Do not retry in the same run; the fix is environmental (`HF_TOKEN` for higher rate limits, HF mirror, or `mode: local_external` / `cloud`).
 - **Embedded PostgreSQL** (`pg0`) may fail to initialize on some Windows hosts with `PostgreSQLBackend is not initialized. Call initialize() first.`. If the log shows this, the bank is unreachable in the current cron — skip `reflect()` and rely on the markdown archive only. The fix is environmental (separate Hindsight container via `local_external`, or `cloud` mode), not something to retry.
 - **Bank may be empty** for a profile that has never used Hindsight. The daemon will start fine, but `reflect()` returns a degenerate result. Check `list_memories` first and short-circuit.
@@ -132,12 +182,16 @@ he.close()
 - [ ] `MEMORY.md` contains no entries with an internal date before the cutoff
 - [ ] `MEMORY_ARCHIVE.md` header records the latest run date and a one-line summary
 - [ ] Housekeeping section at the bottom of `MEMORY_ARCHIVE.md` updated
+- [ ] **All date entries in housekeeping are siblings at the same indentation level** (no nested `- YYYY-MM-DD` inside another date's bullet) — see Housekeeping structure pitfall above
+- [ ] Pre-flight housekeeping ran: stale `memories/*.lock` files cleaned, Gateway log mtime checked
 - [ ] If Hindsight `reflect()` ran: `client.list_mental_models(bank_id="hermes")` shows a fresh entry
+- [ ] If Hindsight `reflect()` skipped: housekeeping records (a) why skipped (failure signature or environmental gate), (b) what boss action items remain open, (c) when the previous actual Hindsight attempt was (log mtime)
 - [ ] `USER.md` unchanged (only update on actual user-profile changes, not on mtime)
 
 ## Files
 
 - `references/hindsight-bank.md` — Hindsight config schema, full `llm_provider` list, env-var matrix, and log signatures for common failure modes
+- `references/lock-file-cleanup.md` — the 3 distinct `.lock` families (`memories/*.lock` vs `~/.hindsight/profiles/*.lock`), detection recipe, housekeeping structure verification, gateway liveness vs Hindsight skip distinction
 - `scripts/hindsight_reflect.py` — re-runnable `reflect()` runner. Loads the profile `.env`, overrides provider env vars, clears stale locks, starts the daemon, calls `reflect()`, and reports new vs existing mental models. Use instead of pasting the recipe above.
 
 ### Quick re-run

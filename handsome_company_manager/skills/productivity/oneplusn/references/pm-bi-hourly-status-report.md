@@ -254,6 +254,50 @@ Per-employee activity in the 2h window = sum of:
     
     If you mix the two surfaces in one report (e.g. §2.1 uses CLI, §2.4 uses API), use per-source key names or normalize. The §2.1 `--jq` projection in this file uses the camelCase keys; the §2.4 `--jq` projection uses snake_case — both are correct for their respective source. Don't mix them.
 
+16. **`execute_code`'s Python `subprocess.run(cwd=...)` fails with WinError 267 on phantom Windows subdirs** (added 2026-07-17, PM #154 run). The cron prompt's example path `cd /d/onboarding/handsome-s-company` is correct on this deployment (the team work-dir IS the repo root — there is NO `agent_workflow/` subdir). When I tried to "be helpful" and `subprocess.run(['git', 'log', ...], cwd='D:/onboarding/handsome-s-company/agent_workflow')` from `execute_code`, Python crashed with `NotADirectoryError: [WinError 267] 目录名称无效` because the subdir doesn't exist. **Fix:** for `git log` and other cwd-sensitive commands, always use `terminal()` (which respects MSYS path translation) rather than `subprocess.run(cwd=...)` from `execute_code`. Pattern:
+    ```python
+    # WRONG from execute_code — WinError 267 on missing subdir
+    subprocess.run(['git', 'log', '--since=2h', '...'], cwd='D:/path/agent_workflow', capture_output=True)
+
+    # RIGHT — terminal() handles MSYS correctly AND you can verify cwd first
+    #   1. ls /d/onboarding/<team>/  (verify no extra subdir beyond agents/ etc.)
+    #   2. cd /d/onboarding/<team> && git log --since=2h --pretty=format:"%h | %ai | %s" | head -30
+    ```
+    The same trap waits for any `cd /d/<team>/<maybe-subdir>` invocation. When the prompt template mentions a subdir, **always `ls` the parent first**. The §2.3 work-dir drift diagnostic catches the *symptom* (empty git log) but not the *cause* (cwd pointed at a path that never existed).
+
+17. **`gh issue list --json ...,comments,assignees,labels` returns a 15-50 KB blob that defeats `head`** (added 2026-07-17, PM #154 run). With `--json comments` in the field list, every issue row embeds its **full** comment thread as nested objects (id, author, body up to several KB each, createdAt, etc.). On the 2026-07-17 dataset (16 issues, 2 with 7 comments each), the raw JSONL output was ~15 KB on one line — `head -200` returned the same line, nothing useful. Two fixes:
+
+    ```bash
+    # Option A — drop comments from --json, get rest compact; separately use gh api for comment counts
+    gh issue list --repo <org>/agent_workflow --state all \
+      --json number,title,state,assignees,labels,updatedAt \
+      --jq '.[] | "#\(.number)|\(.state)|\([.assignees[].login]|join(","))|\([.labels[].name]|join(","))|\(.updatedAt)|\(.title[0:50])"'
+
+    # Option B — from execute_code, json.loads() the full stdout and project in Python
+    # (the §2.1 --jq above is faster, but if you need body content too, B is the way)
+    ```
+
+    The cron template's `| head -200` guardrail is a legacy from `gh issue list --json number,title,state,...` (no comments). When you add `comments` to the field list, `head` becomes a no-op. Always pair `head` with `--jq` projection that emits one row per issue.
+
+18. **The "完成但未沟通" pattern: dev commits but does not open the PR** (added 2026-07-17, PM #154 run). Observed in #19/#20: dev landed first commits (`710ec41`, `bcbd1ce`) on feature branches 19h before report time, but at report time: Issue still OPEN, no PR opened, no PR-review tag flipped, no comment posted on the Issue body saying "PR ready at #N". Same Issue-update and Issue-comment timestamps stayed pinned to "接单 ack" 19h earlier. **Diagnostic signal:** if `git log --all --since=24h` shows N+ commits by dev but `gh pr list --state all` shows the same N as 24h ago, dev has settled into "commit-only" mode without the wiring step. **§2.5 3-state label:** this is NOT 摸鱼 (cron is firing, dev IS active per git) — it's a workflow-state stall that needs the PM to nudge dev with "open the PR" + assign reviewer, not a fresh dispatch. PM §5 洞察 should call this out explicitly so the boss sees the handoff is half-done, not that dev is idle.
+
+19. **`gh api .../issues/comments?per_page=N` returns `issue_url`; `split("/")[-3]` gives the repo name, not the issue number** (added 2026-07-17, PM #155+ run). Common off-by-2 bug. Each bulk-comment row carries `issue_url = "https://api.github.com/repos/<org>/<repo>/issues/<N>"`. Splitting on `/` gives 8 segments: `.[-1]` = `N` (issue number), `.[-2]` = `"issues"`, `.[-3]` = `<repo>` (e.g. `"agent_workflow"`). Symptom in `--jq` output: `"issue":"agent_workflow"` instead of `"issue":"19"`. Same trap applies to any `issue_url` from a comment payload (single-issue call, PR review comment, etc.). Always use `.[-1]` for the issue number. The §2.4 template renders `issue_url` as part of a label string (not an extracted number), so it sidesteps the trap; but if you want the bare integer for `sort_by(.issue)` or numeric filtering, use `.issue_url | split("/") | .[-1] | tonumber`.
+
+20. **When the 2h window returns 0 events, expand to 4h/12h before tagging 摸鱼** (added 2026-07-17, PM #155+ run). The cron template's hard rule is "0 commit + 0 评论 + 0 PR action in 2h = 摸鱼" but that verdict is only reliable AFTER distinguishing genuine idle from "the 2h window doesn't overlap a tick". Any 2h window covers 4 per-employee 30-min cron ticks, so an honest 摸鱼 verdict needs **all 4 ticks** to have been silent. If your 2h window covers a deliberate quiet period (e.g. all-night CST for a China-based team, or between-sprint lulls), expand the window:
+    ```bash
+    ISO_2H=$(date -u -d "2 hours ago"  "+%Y-%m-%dT%H:%M:%SZ")
+    ISO_4H=$(date -u -d "4 hours ago"  "+%Y-%m-%dT%H:%M:%SZ")
+    ISO_12H=$(date -u -d "12 hours ago" "+%Y-%m-%dT%H:%M:%SZ")
+
+    N_2H=$(gh api ".../comments?since=$ISO_2H&per_page=100&sort=created&direction=desc" | jq length)
+    [ "$N_2H" -eq 0 ] && {
+      N_4H=$(gh api  ".../comments?since=$ISO_4H&per_page=100&..."  | jq length)
+      N_12H=$(gh api ".../comments?since=$ISO_12H&per_page=100&..." | jq length)
+      echo "2h empty; 4h=$N_4H, 12h=$N_12H — last activity ~$(( $(date +%s) - $(date -d "$ISO_12H" +%s 2>/dev/null || echo 0) ))s ago"
+    }
+    ```
+    If 12h shows N≥1 and 2h shows N=0, the team is **healthy between sprints** — not 摸鱼. Report this as "expanded window shows last activity at `<YYYY-MM-DDTHH:MM:SSZ>`, Δt = Nh"; the §3 contribution table's 摸鱼信号 column should show "🟡 0 (extended window shows activity at <time>)". Reserve the 摸鱼 flag for the genuine case: 12h empty on a team with open assigned Issues (stale-verdict-deadlock from §2.5).
+
 ---
 
 ## 6. The 5 Numbers That Always Go in §0 (一页速读)
