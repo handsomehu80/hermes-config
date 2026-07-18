@@ -1,7 +1,7 @@
 ---
 name: hermes-config-backup
 description: "Back up a Hermes Agent profile's configuration to a GitHub repository — discover the repo layout, sync config files while honoring the existing .gitignore, commit, and push. Use when a cron job or user asks to back up Hermes profile config, mirror `~/.hermes/profiles/<profile>/` to a remote git repo, or set up daily/periodic config snapshots. Covers the canonical backup set (config.yaml, SOUL.md, channel_directory.json, memories/, cron/jobs.json, custom skills), the `.bundled_manifest` filter for distinguishing custom skills from bundled ones, Windows Git Bash MSYS gotchas, the `github.com:443` firewall fallback to the GitHub REST API, the Git Data API `BadObjectState` trap when committing 100+ blobs, the parallel-by-dir Contents API push pattern (grouped PUTs avoid the 409 sibling race; serial within dir), nested `.git/` and git-submodule handling, and a re-runnable Python sync script that works on any platform."
-version: 1.3.0
+version: 1.4.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -110,12 +110,18 @@ gh repo view <authenticated_user>/hermes-config 2>&1 | head -5 # same-named user
 
 If `<user>/hermes-config` exists and has a `<profile>/` subdirectory, that's your target. Open the README there — it almost always documents the expected layout.
 
+### 3. Clone into a fresh working directory
+
 ### 2. Clone into a fresh working directory
 
 ```bash
 mkdir -p /tmp/hermes-backup
-git clone https://github.com/<owner>/hermes-config.git /tmp/hermes-backup/hermes-config
+# On Windows, set core.autocrlf on the clone invocation itself — changing it after clone
+# does NOT re-checkout files that were already extracted with CRLF endings.
+git -c core.autocrlf=false -c core.safecrlf=false clone https://github.com/<owner>/hermes-config.git /tmp/hermes-backup/hermes-config
 ```
+
+If you forget the `-c core.autocrlf=false` (very common — it's not the default in most setups), run the recovery sequence documented in Windows MSYS Gotchas §7 immediately after the clone. **Do not run `sync_profile.py` until the working tree matches the LF blobs in HEAD**, or your diff will be polluted with hundreds of phantom CRLF entries (including phantom entries in sibling profile subdirs that you never touched).
 
 Use a fresh working directory. **Avoid `rm -rf`** on Windows Git Bash — it triggers an approval prompt. Just `mkdir -p` into a different name if the dir exists. **Even Python's `shutil.rmtree` can fail** on a previous clone's `<dir>/.git/objects/XX/yyyyy...` files with `PermissionError: [WinError 5] 拒绝访问` when a prior process still holds the git object handle. Don't fight it — use a **timestamped** path (e.g. `hermes-config-$(date +%s)` on bash or `hermes-config-{int(time.time())}` in Python) to guarantee no collision with a locked old clone. The old dir can be cleaned up by Windows on its own schedule.
 
@@ -279,7 +285,27 @@ These hit during real syncs and will hit again. Full reproduction recipes in [`r
 4. **`rm -rf /path` triggers a "recursive delete" approval** — prefer `mkdir -p` into a fresh name.
 5. **`cp -rf src dst` semantics differ from Unix** — trailing slash on `dst/` means "copy contents into"; without it, can rename `src` into `dst/src`.
 6. **`/tmp` is mounted to `%LOCALAPPDATA%\Temp`** — don't confuse with `C:\tmp\` (separate directory).
-7. **CRLF vs LF normalization** — `git status` warns "LF will be replaced by CRLF". Committed blob (LF) is always smaller than working-copy file (CRLF). Expected, not corruption. **Pro tip:** set `git config core.autocrlf false` (and `core.safecrlf false` if needed) on the staging clone **before** running `sync_profile.py`. Without this, every text file copied from Windows shows up as "modified" in `git status --short` due to line-ending mismatch, even though `git diff --cached --shortstat` correctly reports zero real content changes after staging (e.g. `wc -l` of `git status --porcelain` returns 615 but `--diff-filter=M` returns 8). Setting `core.autocrlf=false` upfront keeps the diff signal-to-noise high — you can answer "is there actually a change?" by counting porcelain entries instead of having to mentally subtract 400+ CRLF-only phantom rows. **If you forgot to set this BEFORE the clone, the recovery sequence is:** (1) `git config core.autocrlf false` + `core.safecrlf false` on the clone, (2) `git checkout HEAD -- .` to re-checkout every file using the new config (rewrites the working tree to match the LF blob in HEAD), (3) re-run `sync_profile.py` so your own files are copied fresh. Step 2 is the load-bearing one — setting the config AFTER the clone does NOT re-checkout files. On 2026-07-16 PM backup, this sequence took a 950-entry `git status` down to 9 real changes.
+7. **CRLF vs LF normalization — the recovery sequence is ALWAYS required on Windows, not just "if you forgot"** — `git status` warns "LF will be replaced by CRLF". Committed blob (LF) is always smaller than working-copy file (CRLF). Expected, not corruption. **Pro tip:** set `git config core.autocrlf false` (and `core.safecrlf false` if needed) on the staging clone **before** running `sync_profile.py`. Without this, every text file copied from Windows shows up as "modified" in `git status --short` due to line-ending mismatch, even though `git diff --cached --shortstat` correctly reports zero real content changes after staging (e.g. `wc -l` of `git status --porcelain` returns 615 but `--diff-filter=M` returns 8). Setting `core.autocrlf=false` upfront keeps the diff signal-to-noise high — you can answer "is there actually a change?" by counting porcelain entries instead of having to mentally subtract 400+ CRLF-only phantom rows.
+
+   **Important — the timing trap:** setting `core.autocrlf=false` AFTER `git clone` but BEFORE `sync_profile.py` is **not enough**. Git checks out files during `git clone` using whatever `core.autocrlf` was at clone time; changing the config afterwards does **not** re-checkout files that are already on disk. So on Windows (where `core.autocrlf=true` is the global default), the recovery sequence below is **always** required unless you set the config on the clone invocation itself (`git -c core.autocrlf=false clone ...`).
+
+   **Mandatory recovery sequence after clone, BEFORE sync_profile.py** (every Windows run):
+
+   ```bash
+   cd /tmp/hermes-backup/hermes-config
+   git config core.autocrlf false
+   git config core.safecrlf false
+   git checkout HEAD -- .   # ← load-bearing: rewrites working tree to match LF blobs
+   ```
+
+   Then run `sync_profile.py` so your own files are copied fresh. Step 3 is the load-bearing one — setting the config alone does NOT re-checkout files. On 2026-07-16 PM backup, this sequence took a 950-entry `git status` down to 9 real changes. On 2026-07-17 PM backup the same pattern (set config right after clone, before sync) still produced a 948-entry diff including **507 phantom entries in sibling profile `handsome_company_reviewer/`** that I never touched — running the recovery sequence dropped it to 10 real entries, all under my own subdir.
+
+   **Verification step after recovery (catches the case where the recovery didn't take):** count porcelain entries and bucket by top-level directory. Expectation after recovery + sync: a small number (single-digit to ~20), with entries only under your `<profile>/` subdir. If you still see entries under sibling profile dirs, the CRLF fix didn't apply to those paths and you need to re-run `git checkout HEAD -- .` (rare — usually means a hook or `core.hooksPath` reverted files).
+
+   ```bash
+   git status --porcelain | wc -l                                          # small number
+   git status --porcelain | awk '{print $2}' | xargs -I{} dirname {} | sort -u  # only your subdir
+   ```
 8. **`Path("/c/Users/...")` becomes a UNC path** (`\\c\Users\...`) when Python is invoked from MSYS bash. Always use `Path("C:/Users/...")` (forward slashes) for paths inside Python scripts. `bash /tmp` itself is `C:\Users\Administrator\AppData\Local\Temp\` (or whatever `%LOCALAPPDATA%` resolves to for the user) — `C:\tmp` is a separate directory that may not exist.
 9. **`write_file` with a relative path** in `terminal`/`patch` tools resolves against the **active workspace** (e.g. `~/.hermes/profiles/<name>`), not the bash `cwd`. If a file needs to land in `bash /tmp` (e.g. `C:/Users/Administrator/AppData/Local/Temp/...`), pass an absolute path. A script that "can't be found" by `python <path>` after `write_file` usually means the file went to a different tree.
 10. **Python output is line-buffered to stderr/stdout even with `tee`** — when a long-running script pipes to `tee push_log.txt`, the log file may not update for 30+ seconds even though work is happening. Run with `python -u` (unbuffered) or `PYTHONUNBUFFERED=1` so progress prints in real time. This is a Python quirk, not MSYS.
@@ -421,7 +447,12 @@ After the push, the cron job should report:
 - ✅ Explicit confirmation that `.env` is **not** in the repo (`gh api repos/<owner>/<repo>/contents/<profile>`)
 - ✅ For first-time setups: repo URL and description
 
-If any item is missing or `.env` appears, **abort and report** — do not silently succeed.
+**Pre-staging check (run BEFORE `git add`):**
+- ✅ `git status --porcelain | wc -l` — expect a small number (~5-30); if it's hundreds, the CRLF recovery sequence didn't take
+- ✅ Bucket porcelain entries by top-level directory: `git status --porcelain | awk '{print $2}' | xargs -I{} dirname {} | cut -d/ -f1 | sort -u` — expect only YOUR profile subdir; sibling profile dirs in the diff = CRLF pollution that you did NOT introduce, do not stage them
+- ✅ No `.env*` files anywhere in `git status --porcelain` output
+
+If any item is missing, `.env` appears, or sibling dirs leak into the diff — **abort and report** — do not silently succeed.
 
 ## Pre-flight: 30-Second Health Check (do this every cron tick)
 
