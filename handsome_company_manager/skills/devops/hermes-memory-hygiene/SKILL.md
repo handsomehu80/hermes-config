@@ -17,13 +17,15 @@ Maintain the durable memory of a Hermes profile — markdown memory files plus t
 
 ## Memory model
 
-Every Hermes profile has its own memory store at:
+Every Hermes profile has its own memory store under the active Hermes home:
 ```
-~/.hermes/profiles/<profile>/memories/
+<HERMES_HOME>/profiles/<profile>/memories/
 ├── MEMORY.md          # active operational memory (≤ memory_char_limit, default 2200)
 ├── MEMORY_ARCHIVE.md  # rotated-out facts (30+ day old or session-finished)
 └── USER.md            # timeless user profile (preferences, style, communication)
 ```
+
+Layout differs by install: Linux/legacy installs commonly use `~/.hermes`; current Windows named-profile installs commonly use `%LOCALAPPDATA%/hermes` (for example `C:/Users/<user>/AppData/Local/hermes`). Do not hardcode `~/.hermes` on Windows. Resolve `HERMES_HOME` first, then probe both layouts. The bundled `scripts/hindsight_reflect.py` follows this search order.
 
 - `MEMORY.md` is injected into the agent's context as a "memory" prompt on every turn. Keep it lean.
 - `USER.md` is loaded separately as user-profile data. **Do not archive based on mtime alone** — it stores timeless facts.
