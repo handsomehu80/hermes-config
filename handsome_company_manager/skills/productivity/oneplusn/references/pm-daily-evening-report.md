@@ -272,6 +272,72 @@ The boss explicitly listed these as required:
 
     In this session's run: dev profile showed `DEV-task-polling` job with 32/32 files as markers (100%), reviewer showed `REVIEW-task-polling` same — exactly matching the Known Fix #13 prediction. **If you see this in §3 of the daily, the system is functionally healthy but the cron list is lying to your health dashboard.** Surface as 🟡 with explicit cleanup steps (`hermes cron rm <uppercase-job-id>` for the 3 uppercase variants per profile).
 
+23. **After N consecutive days of 摸鱼, escalate from "老板拍板" to a PM-direct-action menu** (learned 2026-07-18, third consecutive daily report with dev/reviewer at 🔴). The §3 risk rule says "连续 3 天摸鱼嫌疑 = 🔴 升级", but the upgrade target is **NOT** another round of "请老板拍板" decision points. If yesterday's §7 already gave 4 decision points and the boss responded to 0, today's §7 must be a **concrete PM-takeover menu** (A/B/C with time/cost/limitations per boss's A/B/C preference):
+
+    | 升级动作 | 命令示例 | 时间 | 风险 |
+    |---|---|---|---|
+    | **PM 代合已判 PASS 的 PR** | `gh pr merge <N> --merge --body "PM 代合:reviewer 7-13 PASS 判决,阻塞 <D> 天"` | <2 min | 越权,但可逆 |
+    | **PM 代开 dev 已 push 的分支** | `gh pr create --base main --head <branch> --title "<title>" --body "<body>"` | <2 min/分支 | 替 dev 立 PR,但 dev 后续可 push 触发 CI |
+    | **PM reassign Issue** | 走两步 reassign,先在 Issue 上留 comment 解释原因,再 `--remove-assignee X --add-assignee Y` | <5 min | 改变铁律 1 流程,需明示 |
+
+    **Trigger:** if any per-employee row in §4 carries the same assessment (摸鱼嫌疑 / 摸鱼升级) for **≥ 3 consecutive daily reports** AND the previous day's §7 decision points got 0 boss action, today's §7 must use this menu format. Frame as: **"若老板今晚 23:30 前无回应,PM 默认走 A 项代合 PR #14/#15;若 B 项, dev 09:00 cron 看到 'PM 已代开 PR' 后可继续 commit;若 C 项,PM 直接 reassign #19/#20 给 reviewer 自驱"**. Do NOT keep writing "请老板拍板" if the previous day's identical prompts got ignored — that's a passive escalation that doesn't move state.
+
+24. **"Cron fires but 0 GH-side translation" is a distinct failure mode** (learned 2026-07-18, dev/reviewer cron producing 50+ substantive .md files/day but 0 commits/comments/PRs). The daily report's §3 risk table currently distinguishes "cron not firing" vs "cron firing but errored" (lesson #4). It must also distinguish **"cron firing successfully + producing LLM output + 0 GitHub artifacts"**:
+
+    | Cron state | GH-side state | Pattern | §3 verdict |
+    |---|---|---|---|
+    | No output dir / 0 .md files in 24h | n/a | Cron didn't fire | 🔴 broken registration |
+    | `.md` files mostly <1KB (markers) | 0 commits / 0 comments | Duplicate registration (Known Fix #13) | 🟡 noise |
+    | `.md` files 15-50KB (substantive) | 0 commits / 0 comments / 0 PRs | **LLM running but not translating to actions** | 🔴 cron-thrashing |
+    | `.md` files 15-50KB | some commits/PRs | Healthy | 🟢 |
+
+    The third row is the trap: `jobs.json` shows `last=ok`, the LLM is consuming tokens, but the agent is in a reasoning loop without producing actions. **Detection recipe:**
+
+    ```python
+    # cron_thrashing.py — run during daily data collection
+    from pathlib import Path
+    from datetime import datetime, timedelta
+    cutoff = datetime.now() - timedelta(hours=24)
+    for profile in ['handsome_company_developer', 'handsome_company_reviewer']:
+        cron_out = Path(f'C:/Users/Administrator/AppData/Local/hermes/profiles/{profile}/cron/output')
+        if not cron_out.exists(): continue
+        sub_files = 0
+        for d in cron_out.iterdir():
+            if not d.is_dir(): continue
+            for f in d.glob('*.md'):
+                if datetime.fromtimestamp(f.stat().st_mtime) >= cutoff and f.stat().st_size > 1000:
+                    sub_files += 1
+        # Now compare to GH-side commit count for that profile (from git log --author)
+        # If sub_files > 30 in 24h but commits < 2: thrashing
+        print(f'{profile}: {sub_files} substantive cron outputs / last 24h')
+    ```
+
+    **In the 2026-07-18 run:** dev profile = 51 substantive / 0 manual commits, reviewer = 50 substantive / 0 manual commits. Both at 50+ daily cron fires with zero GH-side artifacts = **"cron-thrashing"** distinct from the Known Fix #13 marker pattern. **§3 verdict:** 🔴 "cron-thrashing, LLM reasoning loop without action translation". **§7 menu:** add option "PM 自接 #19/#20 代 dev 落地 1 个原子 commit 打破循环".
+
+25. **Open-PR age column in §2 surfaces "stuck after PASS" before it becomes a 7-day incident** (learned 2026-07-18, PR #14/#15 sat for 6 days after reviewer PASS judgment). When listing open PRs in §2, include the `updated_at` age as a column:
+
+    ```bash
+    gh pr list --repo <org>/<repo> --state open \
+      --json number,title,author,additions,updatedAt \
+      --jq '.[] | {n: .number, age: (.updatedAt | sub("T.*"; "") | strptime("%Y-%m-%d") | (now - mktime) / 86400 | floor)}'
+    ```
+
+    **Verdict thresholds (add to §3 risk table):**
+    - PR open + reviewer PASS judgment but no merge, **age > 3 days** → 🔴 (boss must merge or PM must take over)
+    - PR open + reviewer PASS judgment but no merge, **age 1-3 days** → 🟡
+    - PR open + 0 reviewer comments, age > 7 days → 🟡 (reviewer stalled)
+    - Issue open + assignee has not commented, age > 3 days → 🟡
+
+    In 2026-07-18 §2, PR #14 (#14d) and PR #15 (#14d) both showed `merged=---` with reviewer PASS judgments from 7-13 — the `updatedAt` age column made the 6-day stuck state visually obvious at a glance. Without the age column, the row just reads "PR #14 OPEN" and the staleness hides behind the title text.
+
+26. **"Boss non-response" pattern: 2 consecutive daily reports with 0 boss decisions = auto-escalate to PM-takeover** (learned 2026-07-18, corollary to #23). When §7 of the previous daily report had N decision points and §4 of today's report shows that **none of the boss's expected actions materialized** (e.g. "boss was expected to merge PR #14/#15 yesterday, didn't", "boss was expected to call out dev on #19, didn't"), the today's §3 must explicitly call out:
+
+    ```
+    | boss 24h 0 决策动作 + 4 项昨日决策点 0 回应 | 🔴 | 昨日 §7 决策 1-4 全部悬空,导致今日风险从 🟡×3 🔴×3 升级到 🟡×2 🔴×4 | 新发现 |
+    ```
+
+    This makes the escalation explicit in the cross-day trend (§5) and gives the boss a clear "you have 24h to respond or PM takes over" deadline. Without this row, the report reads as "same status as yesterday" and the boss has no signal that yesterday's silence made today worse.
+
 ---
 
 ## 6. Daily-Report-Specific Operational Checks
