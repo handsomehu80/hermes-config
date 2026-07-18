@@ -1,10 +1,10 @@
 Host: Windows 10. User home: C:\Users\Administrator. Shell is git-bash/MSYS (POSIX), NOT PowerShell — use bash syntax (ls, $HOME, &&, |, single quotes, MSYS-style /c/Users/... paths). Python: 3.11.9. Package manager: uv available, pip → python3.11. python3 command is MISSING — always invoke `python` not `python3`.
 §
-Hermes Agent v0.15.1, config v26, install at C:\Users\Administrator\AppData\Local\hermes\hermes-agent. Active profile: default. Single model configured: MiniMax-M3 via minimax-cn provider (https://api.minimaxi.com/v1). Agent max_turns: 150, terminal timeout: 180s, compression threshold 50% → 20%.
+Hermes Agent v0.15.1, config v26, install at C:\Users\Administrator\AppData\Local\hermes\hermes-agent. Active profile: handsome_company_manager. Single model configured: MiniMax-M3 via minimax-cn provider (https://api.minimaxi.com/v1). Agent max_turns: 150, terminal timeout: 180s, compression threshold 50% → 20%.
 §
 1+N 数字员工集成(2026-07-08):fork 到 Hermes。Skill `~/AppData/Local/hermes/skills/productivity/oneplusn/`,9 个 bash 命令在 `~/AppData/Local/hermes/bin/oneplusn*`(cp 副本,Windows ln-sf 坏),cron 30 分钟 + reaper 1 小时(hermes cron --no-agent)。Eval 10/10 PASS。配套 skill `claude-package-to-hermes-skill` 在 `devops/`,记 .claude 包移植方法论 + Windows 路径陷阱 + bash 包装 + cron + evals 模板。
 §
-Configured API keys: only MINIMAX_CN_API_KEY. Missing: OpenRouter, OpenAI, Google, xAI, Exa, Tavily, Firecrawl, Anthropic, GitHub, FAL, ElevenLabs. OAuth providers all unconfigured (Nous/Codex/xAI/Gemini). No GITHUB_TOKEN → 60 req/hr rate limit.
+Credential state (2026-07-17): profile `.env` contains `MINIMAX_CN_API_KEY` and `GITHUB_TOKEN`; GitHub CLI is usable. `HF_TOKEN` is absent. Other provider credentials were not re-validated in this cleanup—do not infer their availability from older snapshots.
 §
 4-profile Agent Team (pm/eng/qa/ast) at ~/AppData/Local/hermes/profiles/. Kanban dispatcher embedded in gateway (kanban.dispatch_in_gateway=true), 60s tick. Manual at ~/AppData/Local/hermes/USAGE.md. (Validation history + pitfall notes archived 2026-07-09.)
 §
