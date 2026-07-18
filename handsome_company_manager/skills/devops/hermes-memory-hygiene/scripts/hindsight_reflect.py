@@ -35,7 +35,22 @@ DEFAULT_QUERY = "Consolidate the durable knowledge in this bank"
 
 def load_profile_env(profile: str) -> tuple[str, str, str]:
     """Returns (api_key, base_url, llm_model)."""
-    env_path = Path.home() / ".hermes" / "profiles" / profile / ".env"
+    # Named Hermes profiles on Windows commonly live under LOCALAPPDATA,
+    # while older/Linux installs use ~/.hermes. Prefer an explicitly supplied
+    # HERMES_HOME, then search both layouts instead of assuming one.
+    roots: list[Path] = []
+    if os.environ.get("HERMES_HOME"):
+        roots.append(Path(os.environ["HERMES_HOME"]).expanduser())
+    roots.extend([
+        Path.home() / ".hermes",
+        Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / "hermes",
+    ])
+    env_path = next(
+        (root / "profiles" / profile / ".env"
+         for root in roots
+         if (root / "profiles" / profile / ".env").exists()),
+        roots[0] / "profiles" / profile / ".env",
+    )
     if not env_path.exists():
         raise FileNotFoundError(f"profile .env not found: {env_path}")
     for line in env_path.read_text(encoding="utf-8").splitlines():
