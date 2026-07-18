@@ -9,38 +9,26 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-16** — no-op archive; no entries in MEMORY.md
+> Latest run: **2026-07-17** — no-op archive; no entries in MEMORY.md
 > carried an internal date older than the 30-day cutoff
-> (2026-06-16). The only dated entry in MEMORY.md is
-> `1+N 数字员工集成(2026-07-08)` — 8 days old, well within the
-> 30-day window, stays in active memory. All other MEMORY.md
-> entries are undated environment-state facts (host/model/API
-> keys/agent team/PM iron rules) and stay in place per the
-> "no internal date → don't archive on mtime" rule.
-> USER.md left in place — timeless user-profile facts.
-> Hindsight `reflect()` skipped for this run per skill guidance —
-> 6th consecutive same-signature environmental failure pattern
-> (HF Hub cross-encoder download → embedded pg0 init).
-> Verified this run: (a) `HF_TOKEN` still NOT set in
-> `~/.hermes/profiles/handsome_company_manager/.env`
-> (confirmed by direct file read), (b) Hindsight mode still
-> `local_embedded` (would re-trigger cross-encoder download),
-> (c) `~/.hindsight/profiles/handsome_company_manager.log`
-> mtime is still **2026-07-12 21:54** — no new Hindsight
-> activity since the last attempt 4 days ago, consistent
-> with the 7-13/7-14/7-15 skip pattern.
-> `~/.hermes/hindsight/config.json` is now MISSING (was
-> present on 7-11 with `openai_compatible`, but a fresh
-> install/migration likely removed it). The Hindsight
-> Python constructor reads provider/model/key/api_base
-> from kwargs + env vars, so the missing config.json does
-> not change the failure mode — daemon still attempts
-> `cross_encoder.initialize()` and trips on HF Hub HEAD
-> timeout → cascading `PostgreSQLBackend is not initialized`.
-> `~/.hindsight/profiles/` has zero `.lock` files — no stale
-> lock to clean. The markdown archive is the durable source
-> of truth; a skipped `reflect()` loses no data, only defers
-> the optimization step until the boss applies (a/b/c).
+> (2026-06-17). The dated active entries are
+> `1+N 数字员工集成(2026-07-08)` and
+> `Credential state (2026-07-17)`; both remain within the 30-day window.
+> Undated environment-state facts remain in place per the
+> "no internal date → don't archive on mtime" rule. USER.md was unchanged.
+> Hindsight is enabled (`memory.provider: hindsight`) and `reflect()` was
+> attempted with provider `minimax` / model `MiniMax-M3`, but the embedded
+> daemon timed out after 180 seconds. The log shows the same environmental
+> blocker: Hugging Face HEAD requests for `BAAI/bge-small-en-v1.5` fail with
+> `[WinError 10054]`, so cross-encoder initialization never completes and no
+> mental model was created or updated. `HF_TOKEN` is still absent.
+> The failed attempt left a zero-byte Hindsight lock; it was removed after
+> confirming no listener remained on port 9807. The markdown archive remains
+> authoritative and no memory data was lost.
+> Separate liveness warning: the profile gateway log is stale (last write
+> 2026-07-15 10:09; last recorded cron-ticker start 2026-07-15 02:49), so
+> Gateway health cannot be confirmed from that log even though this cleanup
+> job itself ran successfully.
 
 ---
 
@@ -79,6 +67,12 @@ trusting this trick.
 ## Archive housekeeping
 
 - Created: 2026-07-09 (cleanup cron).
+- 2026-07-17 — no-op archive (cutoff 2026-06-17; dated active entries are 2026-07-08 and 2026-07-17). Corrected two stale active-memory facts: profile identity (`default` → `handsome_company_manager`) and credential state (`GITHUB_TOKEN` is configured). Hindsight `reflect()` attempted because the provider is enabled:
+  - The reusable runner initially assumed `~/.hermes/profiles/.../.env`; this Windows profile lives under `%LOCALAPPDATA%/hermes/profiles/...`. The skill script was patched to search `HERMES_HOME`, `~/.hermes`, and `%LOCALAPPDATA%/hermes`.
+  - With the correct profile environment loaded, the embedded daemon timed out after 180 seconds. Log signature: Hugging Face HEAD request to `BAAI/bge-small-en-v1.5` failed with `[WinError 10054]`, preventing cross-encoder initialization. No `reflect()` result or mental-model update was produced.
+  - `HF_TOKEN` remains absent. The zero-byte Hindsight lock created by the failed attempt was removed after confirming port 9807 was not listening. No markdown memory data was lost.
+  - Gateway liveness is a separate warning: profile `gateway.log` last changed 2026-07-15 10:09 and last records `Cron ticker started` at 2026-07-15 02:49 (>24h ago). The current cleanup job ran, but Gateway health is not proven by that stale log.
+  - Boss action to unlock Hindsight remains one of: add `HF_TOKEN`, move to `local_external`, or use Hindsight cloud mode.
 - 2026-07-09 — moved 2026-06-03 entries (validation history + toolset snapshot).
 - 2026-07-10 — no-op.
 - 2026-07-11 — no-op (no 30+ day entries in MEMORY.md). Hindsight reflect attempted.
@@ -117,4 +111,4 @@ trusting this trick.
   - No new MEMORY.md entries with internal date older than 2026-06-16; the only dated entry (`1+N 数字员工集成(2026-07-08)`) is 8 days old and stays active.
   - Gateway liveness check: `~/.hermes/profiles/handsome_company_manager/logs/gateway.log` shows last activity 2026-07-15 10:09 (Feishu inbound + agent cache evict); cron ticker started 2026-07-15 02:49. Gateway is alive — the reflect-skip is not due to gateway down.
   - **Boss action STILL open** (one of): same (a/b/c) as 7-13/7-15. No new evidence suggests the env has changed in a way that would let `reflect()` succeed; the failure signature has been stable for 4 days.
-- Next scheduled cleanup: per the cron job cadence. Boss-driven action items for unlocking `reflect()`: see 2026-07-13 + 2026-07-15 + 2026-07-16 housekeeping (a/b/c).
+- Next scheduled cleanup: per the cron job cadence. Boss action for unlocking `reflect()`: choose one of the 2026-07-17 housekeeping options (`HF_TOKEN`, `local_external`, or cloud mode).
