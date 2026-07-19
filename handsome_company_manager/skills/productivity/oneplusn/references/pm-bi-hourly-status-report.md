@@ -1,3 +1,13 @@
+---
+name: pm-bi-hourly-status-report
+description: "PM's recurring every-2-hours status report playbook — data collection, 3-state classification, report template, pitfalls."
+version: 1.3.0
+parent_skill: oneplusn
+metadata:
+  hermes:
+    tags: [pm-operations, status-report, cron, deadlock-detection]
+---
+
 # PM Bi-Hourly Status Report — Recurring Operational Cadence
 
 This is the **playbook for the PM profile (`handsome_company_manager`) when the boss schedules a recurring every-2-hours status report**. Distinct from both the 30-min `task-polling` cron (which executes work or returns `[SILENT]`) and from `PM Mode` (on-demand strategic analysis). The 2h report is a **scheduled, read-only observation report** delivered to the boss's home channel.
@@ -32,7 +42,7 @@ gh issue list --repo <org>/agent_workflow --state all \
   --jq '.[] | "#\(.number) [\(.state)] \(.title[0:50]) | asg=\([.assignees[].login] | join(",")) | lbl=\([.labels[].name] | join(",")) | upd=\(.updatedAt)"'
 ```
 
-`--jq` with a projection template keeps the output bounded. The `head -200` mentioned in the template is a guardrail only — most repos have <50 issues.
+`--jq` with a projection template keeps the output bounded. The `head -200` mentioned in the template is a guardrail only — most repos have <50 issues. **Do NOT add `comments` to the field list** — see §5 pitfall #17 (15-50 KB blob defeats `head`).
 
 ### 2.2 `gh pr list` — works, same shape
 
@@ -85,7 +95,7 @@ date -u -d "2 hours ago" "+%Y-%m-%dT%H:%M:%SZ"   # on this host
 
 ### 2.5 Cron liveness check (3-state classification, learned 2026-07-15)
 
-The 2026-07-14 report (#11) incorrectly diagnosed "team silent 21h" as "cron ticker died". The 2026-07-15 report (#12) corrected this: cron was firing perfectly every 30 min and the LLM was returning `[SILENT]` correctly under the existing rule. The fix is to upgrade the liveness check from "is cron firing?" to a **3-state classification** that distinguishes healthy-idle, stale-verdict-deadlock, and cron-dead.
+The 2026-07-14 report (#11) incorrectly diagnosed "team silent 21h" as "cron ticker died". The 2026-07-15 report (#12) corrected this: cron was firing perfectly every 30 min and the LLM was returning `[SILENT]` correctly under the existing rule. The fix is to upgrade the liveness check from "is cron firing?" to a **4-state classification** (3 + the boss-merge deadlock from §2.7) that distinguishes healthy-idle, stale-verdict-deadlock, boss-merge-PR-deadlock, and cron-dead.
 
 ```bash
 # Step A: cron firing? — check output dir for fresh .md files
@@ -102,19 +112,24 @@ tail -c 300 "/c/Users/Administrator/AppData/Local/hermes/profiles/<profile>/cron
 
 # Step D: open assigned Issues for the agent under check
 gh issue list --assignee @me --state open --json number,title,updatedAt --jq '.[] | "#\(.number) [\(.updatedAt)] \(.title[0:60])"'
+
+# Step E: open PRs waiting on boss-merge (§2.7 signal)
+gh pr list --state all --json number,title,state,reviewDecision,updatedAt \
+  --jq '.[] | select(.state == "OPEN") | "#\(.number) [\(.updatedAt)] rev=\(.reviewDecision // "—") | \(.title[0:60])"'
 ```
 
-**3-state classification (use this in §2 of every 2h report):**
+**4-state classification (use this in §2 of every 2h report):**
 
-| Cron firing? | LLM executing? | LLM verdict | Open assigned Issues? | Diagnosis | 报告标注 |
-|---|---|---|---|---|---|
-| ✅ fresh .md | ✅ >50 KB | `[SILENT]` | ❌ none | healthy idle | 🟢 |
-| ✅ fresh .md | ✅ >50 KB | `[SILENT]` | ✅ open + last_verdict_age > 48h + last_verdict_actor ≠ self | **stale-verdict deadlock** | 🔴 |
-| ✅ fresh .md | ✅ >50 KB | doing work | any | healthy active | 🟢 |
-| ❌ no new .md | — | — | any | **cron dead / Gateway down** | 🔴 |
-| ✅ fresh .md | ❌ <1 KB or empty | — | any | **script crashed** | 🔴 |
+| Cron firing? | LLM executing? | LLM verdict | Open assigned Issues? | Open PRs waiting on boss-merge? | Diagnosis | 报告标注 |
+|---|---|---|---|---|---|---|
+| ✅ fresh .md | ✅ >50 KB | `[SILENT]` | ❌ none | ❌ none | healthy idle | 🟢 |
+| ✅ fresh .md | ✅ >50 KB | `[SILENT]` | ✅ open + last_verdict_age > 48h + last_verdict_actor ≠ self | ❌ none | **stale-verdict deadlock** | 🔴 |
+| ✅ fresh .md | ✅ >50 KB | `[SILENT]` | ✅ open with "等 PR 合并" condition | ✅ ≥1 OPEN > 24h with reviewer PASS | **boss-merge-PR deadlock** (§2.7) | 🔴 (with PM-fix recipe) |
+| ✅ fresh .md | ✅ >50 KB | doing work | any | any | healthy active | 🟢 |
+| ❌ no new .md | — | — | any | any | **cron dead / Gateway down** | 🔴 |
+| ✅ fresh .md | ❌ <1 KB or empty | — | any | any | **script crashed** | 🔴 |
 
-The 🟢/🔴 label in §2 红黄绿灯风险 should reflect the diagnosis, not just activity. **Two consecutive 2h reports where the diagnosis is "stale-verdict deadlock" → escalate to PM intervention** (派单 in #8 / Iron Rule #8 ping). Full deadlock diagnostic + recipe in `agent-task-polling/references/stale-verdict-deadlock.md`.
+The 🟢/🔴 label in §2 红黄绿灯风险 should reflect the diagnosis, not just activity. **Two consecutive 2h reports where the diagnosis is "stale-verdict deadlock" or "boss-merge-PR deadlock" → escalate to PM intervention** (派单 in #8 / Iron Rule #8 ping, or PM-direct-action merge summary — see §2.7).
 
 ### 2.6 UPPERCASE cron job duplicate trap (learned 2026-07-15)
 
@@ -146,6 +161,116 @@ for prof in ['handsome_company_developer','handsome_company_reviewer','handsome_
 ```
 
 This is the §3 contribution-table backbone: each row's "本期动作" can now cite the latest `.md` filename + verdict, not just "0 action".
+
+### 2.7 Boss-merge-PR deadlock — distinct from AND-trigger between employees (added 2026-07-18)
+
+The SKILL.md "PM Operations: Pitfalls" describes the **AND-trigger between employees** deadlock (Issue body says "等 #X close" + both X and Y owned by different employees互相等). There is a SECOND deadlock class that looks identical from above but has a different unblock path: **boss-merge-PR deadlock**.
+
+**Shape:**
+- Reviewer writes `Verified and closed by reviewer (PASS, PR #N 可合并)` on the Issue → Issue is CLOSED.
+- The PR itself stays in `OPEN` state because **nobody** ran `gh pr merge #N` — reviewer's RULES say they validate, not merge.
+- Downstream Issues (e.g. #8 verifier, #19/#20 follow-up) were dispatched with conditions like "等 #N merged 后启动" or depend on the PR's main-line code.
+- Dev can't push follow-up commits until the PR is merged (otherwise the new branch diverges from main).
+- Boss has not noticed or has been deferring. The PM is the only one who sees the full picture.
+
+**Symptoms** (all three must hold):
+- Cron firing for dev + reviewer + PM ✅
+- LLM returning `[SILENT]` for all three ✅
+- `gh pr list --state all` shows N PRs (N≥1) with `state=OPEN` > 24h AND the matching Issues `state=CLOSED` ✅
+- `gh pr view <N> --json reviewDecision,comments` shows reviewer already wrote PASS in Issue comment
+
+**Why the existing 3-state classification misses this:** the §2.5 table labels "[SILENT] + open assigned Issues with `last_verdict_age > 48h` from OTHER side" as 🔴 **stale-verdict deadlock** — accurate label, but the fix recipe in §2.5 says "派单 reviewer to independently verify any PASSED-but-unmerged PR". That's reviewer-side action; the **boss-side action gap** is invisible until the PM notices reviewer already PASSed and is just waiting for the merge.
+
+**Fix recipe (PM-direct-action, escalate after 2 consecutive 2h reports):**
+1. Run `gh pr list --state all --json number,title,state,reviewDecision,additions,comments` to enumerate stuck PRs.
+2. For each PR with `state=OPEN` and `reviewDecision` ≠ null (reviewer approved) OR reviewer wrote "PASS" in linked Issue comments, draft a one-liner merge plan.
+3. Use the new 4th state in §2.5: **boss-merge-PR deadlock** — label 🔴, but with explicit **PM-fix recipe = "review the 3 PRs, write a `gh pr merge 14 15 13` ready-to-paste line for the boss"** rather than waiting for the boss to act.
+4. After 2 consecutive 2h reports showing this state, stop asking the boss A/B/C and **deliver the merge command as part of the report**. Frame it as "copy-paste this to unblock everything" — the boss has 1 keystroke left.
+
+**Reference concrete case (2026-07-18 PM #N):** PR #14 (+435 lines), PR #15 (+901), PR #13 (+917) all OPEN > 5 days; reviewer wrote PASS on Issues #6/#7 (now CLOSED). Dev's #19/#20 follow-up branches sat idle 57h waiting for the PRs to land. Boss had not selected any A/B/C option from prior bi-hourly reports. PM's escalation: "I'll review PR #13/#14/#15 content, draft a merge-ready summary, and include the one-liner in the next report. Boss copy-paste → all 4 Issues unblock."
+
+### 2.8 Cron output dir → friendly job name disambiguation (added 2026-07-18)
+
+Each `<profile_home>/cron/output/<job_id>/` directory is named by a **hashed job_id** (e.g. `42173ac76d3f`), not the friendly job name (`oneplusn-dev-task-polling`). When the bi-hourly diagnostic walks these dirs to verify cron liveness, you cannot tell which friendly job a dir belongs to from the path alone.
+
+**Recipe to map hash → friendly name:**
+
+```python
+from pathlib import Path
+out_root = Path("C:/Users/Administrator/AppData/Local/hermes/profiles/<profile>/cron/output")
+for d in sorted(out_root.iterdir()):
+    if not d.is_dir():
+        continue
+    files = sorted(d.glob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True)
+    if not files:
+        continue
+    # First line of any .md is "# Cron Job: <friendly-name>"
+    first_line = files[0].read_text(encoding="utf-8", errors="replace").splitlines()[0]
+    print(f"{d.name}  →  {first_line}")
+```
+
+Output shape: `42173ac76d3f  →  # Cron Job: oneplusn-dev-task-polling`. Use this to verify the §2.5 freshness check is reading the right job (e.g. confirm you're inspecting `oneplusn-dev-task-polling`, not `oneplusn-DEV-task-polling` — see §2.6).
+
+**Reliability:** use `execute_code` with `pathlib.Path` rather than `terminal()` with `cat`/`ls`. Per parent SKILL.md "Known Fixes #14", MSYS rewrites Windows paths even with `MSYS_NO_PATHCONV=1`. `pathlib.Path` from `execute_code` is the only fully-reliable way to walk `C:/Users/.../hermes/profiles/...` paths.
+
+---
+
+## 2.12 The "fastest-mtime trap" — per-friendly-name liveness for oneplusn employees (added 2026-07-19, PM #54)
+
+The §2.5 "Cron liveness check" recipe assumes a single output dir per profile. **That assumption is wrong for every oneplusn employee.** Per §2.6, each task-polling / config-backup / memory-cleanup job is registered TWICE under both `oneplusn-dev-…` (lowercase, real LLM) and `oneplusn-DEV-…` (uppercase, wrapper-shadowed marker). So `cron/output/` typically has **6 dirs per profile**, not 3.
+
+### The trap in detail
+
+Both registrations fire at the same wall-clock minute (same schedule). The "fastest mtime file across all dirs" heuristic — which is the lightest-weight sanity check for §2.5 Step A — picks the **wrong dir**:
+
+```
+ls -lat <profile>/cron/output/*/*.md | head -1
+# → picks 06d40e2e1a85/<latest>.md (oneplusn-DEV-task-polling)
+#   size=166B  Status: silent (empty output)
+# → PM diagnoses "cron dead", but actually it's picking the shadow-dup marker
+#   the real LLM run is one mtime-millisecond behind it in the lowercase dir
+```
+
+The wrong dir wins ties because the wrapper's `hermes run … | tee …` writes the marker file first, and the lowercase `hermes run …` invocation finishes 200-500ms later. Both are "fresh" by Step A's standard; the wrong one is "fresher".
+
+Real case (2026-07-19 PM #54): the `handsome_company_developer` profile had **256 marker files** (166B each, ALL `silent`) in the UPPERCASE dir, while the matching LOWERCASE dir had **296 real LLM runs at 102678B each**. Step A's mtime-only check produced "0 LLM runs in 2h, cron appears dead" — the opposite of reality.
+
+### The right check: per-friendly-name classifier
+
+Use `scripts/check_pm_cron_liveness.py` (re-runnable, exits non-zero if any real job is dead):
+
+```bash
+python scripts/check_pm_cron_liveness.py --profile handsome_company_developer --window-hours 24
+
+# Sample output:
+# PM cron liveness for handsome_company_developer (window=24h, since 2026-07-18T20:00Z)
+#   real jobs=3  shadow-dups=3  healthy=3  dead=0
+#   friendly name                       verdict                markers small LLM-runs
+#   oneplusn-dev-task-polling           🟢 alive (real LLM)         0     0      48
+#   oneplusn-DEV-task-polling           DUPLICATE-shadow (noise)   48     0       0
+#   oneplusn-dev-config-backup          🟢 alive (real LLM)         0     0       1
+#   oneplusn-DEV-config-backup          DUPLICATE-shadow (noise)    1     0       0
+#   oneplusn-dev-memory-cleanup         🟢 alive (real LLM)         0     0       1
+#   oneplusn-DEV-memory-cleanup         DUPLICATE-shadow (noise)    1     0       0
+```
+
+The script's `n_real_jobs` and `n_healthy` numbers are exactly what §3 摸鱼信号 needs. The `latest real` column gives the timestamp to cite in §3's "本期动作" row. The "DUPLICATE-shadow" rows are reported but flagged as **noise** — they don't affect the §2.5 4-state classification (they don't represent the LLM-side; they're Known Fix #13 wrapper artifacts).
+
+### Decision rule for the 2h report
+
+| Script output | §3 摸鱼信号 value | §2 红黄绿灯 label |
+|---|---|---|
+| `n_healthy == n_real_jobs` (all real jobs alive) | "cron tick @ HH:MM CST = NNNB LLM, [SILENT] exit" | 🟢 healthy OR per §2.5/§2.7 |
+| `n_healthy < n_real_jobs` (1+ real job dead) | "🔴 cron-dead on `<friendly-name>`, no fresh output >2h" | 🔴 cron dead, restart Gateway |
+| `n_real_jobs == 0` (no jobs at all) | "(profile unregistered)" | 🔴 misconfigured |
+
+### Anti-pattern
+
+**Don't** write a custom mtime-only inline check. The `dir → friendly-name` mapping (`§2.8`) and the `size-threshold` classification (`cron-health-audit.md`) are non-trivial; oneplusn employees have **6 dirs not 3**, and a smoke check that "looks" correct can be wrong for days before anyone notices. The script exists so the PM bi-hourly check is **deterministic**, not heuristic.
+
+### Pair with the existing §2.5 recipe
+
+This section does not replace §2.5 — it's the oneplusn-specific implementation of §2.5 Step A/B for cron output dirs. Once you have the per-friendly-name classifier output, the §2.5 4-state classification still applies (the script's verdict just tells you which row to label 🟢 alive vs 🔴 dead). Use both.
 
 ---
 
@@ -195,7 +320,9 @@ Stick to the exact structure the boss provided. Don't reformat. Boss has been ex
 6. **摸鱼信号** — dev/reviewer with 0 commit + 0 评论 + 0 PR action in 2h = "无活动,待观察"; two consecutive 0-activity reports = "🔴 摸鱼嫌疑".
 7. **风险等级** — 🔴 阻塞交付 / 🟡 进度慢但有推进 / 🟢 健康.
 
-**Refinement to rule 6 (learned 2026-07-15):** "0 活动" alone is no longer sufficient — must distinguish "0 活动 + cron dead" (🔴 cron died, restart Gateway) from "0 活动 + cron firing + [SILENT]" (🟢 healthy OR 🔴 stale-verdict deadlock). Use the 3-state classification in §2.5 to label correctly.
+**Refinement to rule 6 (learned 2026-07-15):** "0 活动" alone is no longer sufficient — must distinguish "0 活动 + cron dead" (🔴 cron died, restart Gateway) from "0 活动 + cron firing + [SILENT]" (🟢 healthy OR 🔴 stale-verdict deadlock). Use the 4-state classification in §2.5 to label correctly.
+
+**Refinement to rule 6 (added 2026-07-18):** when the 4-state classification returns "boss-merge-PR deadlock" (§2.7), the label is 🔴 but the §6 A/B/C menu is **optional** — escalate to PM-direct-action merge summary after 2 consecutive 2h reports.
 
 ---
 
@@ -214,7 +341,7 @@ Per-employee activity in the 2h window = sum of:
 
 **Cross-employee handoff (the 2h-ratchet):** if dev was active 2h ago and the work landed in reviewer's lap, and reviewer has been active since, that's NOT a 摸鱼 signal for either — it's the handoff completing. The report should describe the handoff state, not flag either side as idle.
 
-**Cron-firing silent clarification (learned 2026-07-15):** a dev/reviewer returning `[SILENT]` on every cron tick while cron is firing is NOT 摸鱼 if there are no open assigned Issues with stale verdicts (i.e. genuine idle). It IS the stale-verdict deadlock if there are open assigned Issues with `last_verdict_age > 48h` from the OTHER side. Always run the §2.5 3-state classification before tagging "摸鱼".
+**Cron-firing silent clarification (learned 2026-07-15):** a dev/reviewer returning `[SILENT]` on every cron tick while cron is firing is NOT 摸鱼 if there are no open assigned Issues with stale verdicts (i.e. genuine idle). It IS the stale-verdict deadlock if there are open assigned Issues with `last_verdict_age > 48h` from the OTHER side. Always run the §2.5 4-state classification before tagging "摸鱼".
 
 ---
 
@@ -240,7 +367,7 @@ Per-employee activity in the 2h window = sum of:
 
 10. **The PM is allowed to do nothing in 2h, and that IS a signal.** If dev is firing and reviewer is firing, the PM may legitimately have zero direct action — the 摸鱼 signal only applies to dev/reviewer, not PM. The PM's column in §3 should list "派单 / 拍板 / 报告" actions; "none" is a valid value and means "team is self-driving, PM is observing".
 
-11. **Don't diagnose "cron dead" from "no GitHub activity" alone (added 2026-07-15).** The PM #11 report made this error. The correct diagnostic is the 3-state classification in §2.5 — check output-dir freshness + LLM verdict tail + open assigned Issues. "No GitHub activity for 22h" can mean: (a) cron dead, (b) stale-verdict deadlock, (c) genuinely no work AND no assigned open Issues. Three very different states with three very different fixes.
+11. **Don't diagnose "cron dead" from "no GitHub activity" alone (added 2026-07-15).** The PM #11 report made this error. The correct diagnostic is the 4-state classification in §2.5 — check output-dir freshness + LLM verdict tail + open assigned Issues + open PRs waiting on boss-merge. "No GitHub activity for 22h" can mean: (a) cron dead, (b) stale-verdict deadlock, (c) boss-merge-PR deadlock, (d) genuinely no work AND no assigned open Issues. Four very different states with four very different fixes.
 
 12. **UPPERCASE cron duplicates show stale `last_status=error` (added 2026-07-15).** When historical on-boarding scripts registered jobs in two naming conventions, the duplicate UPPERCASE jobs carry stale error state from earlier failures even when the actual script is firing fine. Pair `last_status=error` with the §2.5 freshness check before acting on it.
 
@@ -279,7 +406,123 @@ Per-employee activity in the 2h window = sum of:
 
     The cron template's `| head -200` guardrail is a legacy from `gh issue list --json number,title,state,...` (no comments). When you add `comments` to the field list, `head` becomes a no-op. Always pair `head` with `--jq` projection that emits one row per issue.
 
-18. **The "完成但未沟通" pattern: dev commits but does not open the PR** (added 2026-07-17, PM #154 run). Observed in #19/#20: dev landed first commits (`710ec41`, `bcbd1ce`) on feature branches 19h before report time, but at report time: Issue still OPEN, no PR opened, no PR-review tag flipped, no comment posted on the Issue body saying "PR ready at #N". Same Issue-update and Issue-comment timestamps stayed pinned to "接单 ack" 19h earlier. **Diagnostic signal:** if `git log --all --since=24h` shows N+ commits by dev but `gh pr list --state all` shows the same N as 24h ago, dev has settled into "commit-only" mode without the wiring step. **§2.5 3-state label:** this is NOT 摸鱼 (cron is firing, dev IS active per git) — it's a workflow-state stall that needs the PM to nudge dev with "open the PR" + assign reviewer, not a fresh dispatch. PM §5 洞察 should call this out explicitly so the boss sees the handoff is half-done, not that dev is idle.
+### 2.9 PR merge-readiness diagnostic (added 2026-07-18)
+
+When the §2.7 boss-merge-PR deadlock is suspected, two questions must be answered before drafting a merge one-liner: **(a) is each PR actually mergeable?** and **(b) which PRs are clean vs need rebase?** `gh pr view --json mergeable` is **not reliable** — it returns `"mergeable":"UNKNOWN"` when GitHub hasn't yet computed the state (no Actions configured, slow rate-limit calc, or the merge commit hasn't been simulated yet).
+
+**Use `git merge-tree` for a deterministic, side-effect-free conflict check:**
+
+```bash
+# Verify base ref exists locally first
+cd <team-work-dir>
+git fetch origin --quiet
+
+# For each OPEN PR, compute merge-base against origin/main and pipe to merge-tree
+PR_BRANCH="origin/<pr-branch>"   # e.g. origin/feat/issue-6-budget-middleware
+BASE=$(git merge-base origin/main "$PR_BRANCH")
+git merge-tree "$BASE" origin/main "$PR_BRANCH" | head -20
+```
+
+**Output interpretation:**
+- Output contains `<<<<<<<` markers, `changed in both`, or `CONFLICT (...)` → **CONFLICTING** — needs rebase before merge
+- Output contains only `added in remote` / `added in local` lines with no conflict markers → **clean merge candidate**
+- Output is empty or shows only added-side hunks → trivially clean
+
+**Verified-working real case (2026-07-18 PM #51):**
+
+| PR | branch | mergeable (gh) | git merge-tree result | action |
+|---|---|---|---|---|
+| #13 | `feat/issue-10-ralph-loop-poc` | UNKNOWN | clean (no markers) | merge directly |
+| #14 | `feat/issue-6-budget-middleware` | UNKNOWN | **CONFLICTING** on `docs/budget-middleware.md` | rebase first |
+| #15 | `feat/issue-7-evaluator-harness` | UNKNOWN | clean (no markers) | merge directly |
+
+The merge-base + merge-tree invocation never touches the working tree — safe to run from any cron context, no risk of half-merged state. This is the **only reliable pre-flight check** for the PM-direct-action one-liner (§2.10).
+
+### 2.10 PM-direct-action one-liner template (added 2026-07-18)
+
+When the §2.7 escalation fires (≥2 consecutive 2h reports showing boss-merge-PR deadlock), the report should ship a **copy-paste-able merge one-liner**, not another A/B/C menu. Template shape:
+
+```bash
+# Step 1: merge PRs that the §2.9 diagnostic flagged as clean
+cd <team-work-dir> && \
+  MSYS_NO_PATHCONV=1 gh pr merge <N1> --merge --delete-branch && \
+  MSYS_NO_PATHCONV=1 gh pr merge <N2> --merge --delete-branch && \
+  echo "✅ Step 1 complete — clean PRs merged"
+
+# Step 2: rebase + merge any CONFLICTING PRs (one at a time, force-with-lease to fail safely)
+git fetch origin && git checkout <pr-branch> && \
+  git rebase origin/main && git push --force-with-lease && \
+  MSYS_NO_PATHCONV=1 gh pr merge <N3> --merge --delete-branch && \
+  echo "✅ Step 2 complete — rebase + merge done"
+
+# Expected downstream effects (write into the report as "what unlocks after merge"):
+# - Issue #X1+#X2 reviewer-PASSed → truly CLOSED (was reviewer-closed but PR was floating)
+# - dev sees PR land → pushes #Y1+#Y2 follow-up commit → applies for close
+# - reviewer starts #Z verifier's 4-scenario E2E
+# - #Z pass → 6 铁规 + #7 (per-tick spend cap iron rule) gets入库
+```
+
+**Ordering rationale (cite this in the report so the boss sees the chain):**
+1. Clean PRs first — they unlock downstream employees fastest, no rebase risk.
+2. CONFLICTING PR last — the rebase might surface other issues that need a follow-up cycle.
+3. Use `--force-with-lease` not `--force` — if a teammate pushed to the branch while you were rebasing, lease detects it and refuses.
+4. Always `--delete-branch` — keeps the repo clean; dev's follow-up commits should go on a new branch off main anyway.
+
+**Frame in the report as:** "本起转 PM-direct-action(§2.10 模板),老板按一下即可,不需要再做 A/B/C 决策。连续 N 期 A/B/C 无响应已触发升级条件。"
+
+**Escalation threshold (refinement of §2.7):**
+- **2 consecutive 2h reports showing boss-merge-PR deadlock** → recommended PM-direct-action
+- **3+ consecutive 2h reports** → **required** PM-direct-action one-liner (A/B/C menus stop being useful past this point; boss has had enough chances to decide and is choosing inaction)
+- The shift from "推荐" to "强制" is automatic and silent — the report just includes the one-liner from §2.10 instead of an A/B/C menu.
+
+**Anti-patterns to avoid:**
+- Don't write the one-liner with placeholders like `<PR1>` — boss can't mentally resolve 5 placeholders. List the actual numbers (13, 15, 14).
+- Don't include `git push --force` — use `--force-with-lease` always.
+- Don't run the rebase step automatically — dev is the one who knows the intent of their branch. The one-liner tells the boss what to paste; the boss decides whether to rebase themselves or assign dev to rebase.
+- Don't bury the one-liner in §6 — it goes in §5 (PM 洞察) or right under the §0 一页速读 table where the boss is already looking.
+
+### 2.11 `gh api --paginate > file.json` corrupts multi-page JSON (added 2026-07-18)
+
+When you need to enumerate the **full** history of a paginated endpoint (e.g. all issue events for "last activity" diagnostics), `--paginate` writes **multiple JSON arrays** to stdout, one per page, concatenated. `json.loads()` on the combined output fails with `Invalid control character` or `Extra data` at the boundary.
+
+**Don't:**
+
+```bash
+# WRONG — two JSON arrays glued together, json.loads fails at boundary
+gh api "repos/<org>/<repo>/issues/events?per_page=100" --paginate > events.json
+python -c "import json; json.load(open('events.json'))"   # JSONDecodeError
+```
+
+**Do — fetch pages explicitly:**
+
+```bash
+# RIGHT — explicit page-by-page fetch, each page is a valid single JSON array
+gh api "repos/<org>/<repo>/issues/events?per_page=100&page=1" > events_p1.json
+gh api "repos/<org>/<repo>/issues/events?per_page=100&page=2" > events_p2.json
+# Stop when page N returns [] (no more results)
+
+python -c "
+import json
+items = []
+for p in ['events_p1.json', 'events_p2.json']:
+    raw = open(p, encoding='utf-8').read().strip()
+    if raw:
+        items.extend(json.loads(raw))
+print(f'Total events: {len(items)}')
+recent = [x for x in items if x['created_at'] >= '2026-07-18T12:01:00Z']
+print(f'Since 2h cutoff: {len(recent)}')
+"
+```
+
+**Alternative: `gh api ... | jq -s 'add'`** — works but only if `jq` is installed (often missing on Windows). Explicit per-page calls + python merge is the cron-safe path.
+
+**Why `--paginate` is fine for `--jq` (single command) but breaks for file redirection:** `--paginate` + `--jq` processes each page internally and emits a single merged stream. `--paginate > file` writes the raw response bodies, one array per page, no merging. Different code paths, different outputs.
+
+**Generalized rule:** if the response is small enough to fit on one page (`per_page=100` and total count < 100), `--paginate` is fine. As soon as the dataset crosses 1 page, switch to explicit `?page=N` and merge yourself.
+
+**Symptom when you got it wrong:** `JSONDecodeError: Invalid control character at: line 1 column 20001 (char 20000)` — almost always a `--paginate` boundary, not a real malformed-JSON problem. Switch to explicit page calls and the parse succeeds.
+
+18. **The "完成但未沟通" pattern: dev commits but does not open the PR** (added 2026-07-17, PM #154 run). Observed in #19/#20: dev landed first commits (`710ec41`, `bcbd1ce`) on feature branches 19h before report time, but at report time: Issue still OPEN, no PR opened, no PR-review tag flipped, no comment posted on the Issue body saying "PR ready at #N". Same Issue-update and Issue-comment timestamps stayed pinned to "接单 ack" 19h earlier. **Diagnostic signal:** if `git log --all --since=24h` shows N+ commits by dev but `gh pr list --state all` shows the same N as 24h ago, dev has settled into "commit-only" mode without the wiring step. **§2.5 4-state label:** this is NOT 摸鱼 (cron is firing, dev IS active per git) — it's a workflow-state stall that needs the PM to nudge dev with "open the PR" + assign reviewer, not a fresh dispatch. PM §5 洞察 should call this out explicitly so the boss sees the handoff is half-done, not that dev is idle.
 
 19. **`gh api .../issues/comments?per_page=N` returns `issue_url`; `split("/")[-3]` gives the repo name, not the issue number** (added 2026-07-17, PM #155+ run). Common off-by-2 bug. Each bulk-comment row carries `issue_url = "https://api.github.com/repos/<org>/<repo>/issues/<N>"`. Splitting on `/` gives 8 segments: `.[-1]` = `N` (issue number), `.[-2]` = `"issues"`, `.[-3]` = `<repo>` (e.g. `"agent_workflow"`). Symptom in `--jq` output: `"issue":"agent_workflow"` instead of `"issue":"19"`. Same trap applies to any `issue_url` from a comment payload (single-issue call, PR review comment, etc.). Always use `.[-1]` for the issue number. The §2.4 template renders `issue_url` as part of a label string (not an extracted number), so it sidesteps the trap; but if you want the bare integer for `sort_by(.issue)` or numeric filtering, use `.issue_url | split("/") | .[-1] | tonumber`.
 
@@ -298,6 +541,8 @@ Per-employee activity in the 2h window = sum of:
     ```
     If 12h shows N≥1 and 2h shows N=0, the team is **healthy between sprints** — not 摸鱼. Report this as "expanded window shows last activity at `<YYYY-MM-DDTHH:MM:SSZ>`, Δt = Nh"; the §3 contribution table's 摸鱼信号 column should show "🟡 0 (extended window shows activity at <time>)". Reserve the 摸鱼 flag for the genuine case: 12h empty on a team with open assigned Issues (stale-verdict-deadlock from §2.5).
 
+21. **The "[SILENT] = 摸鱼" false positive: cron-firing + LLM-silent ≠ idle (added 2026-07-18).** A common PM error: see "0 commits + 0 comments in 2h" → tag 摸鱼. But the [SILENT] cron output (see §2.5 Step C) shows the LLM is doing exactly what its skill says to do when there's no new feedback: return `[SILENT]`. The diagnostic chain is: (1) §2.5 Step A confirms cron firing (fresh .md in output dir); (2) §2.5 Step B confirms LLM executing (file > 50KB); (3) §2.5 Step C confirms LLM verdict (`[SILENT]`); (4) §2.5 Step D shows open assigned Issues, if any. Only after ALL four checks should you tag 摸鱼. In the 2026-07-18 PM run, both dev and reviewer were returning `[SILENT]` correctly under the skill — not 摸鱼, but "waiting for boss to merge PRs" (boss-merge-PR deadlock per §2.7). The §3 contribution-table row should show "0 commit / 0 评论" but with the §2.5 4-state label (e.g. "🟢 healthy idle" or "🔴 boss-merge-PR deadlock"), NOT "🔴 摸鱼". Reserve "🔴 摸鱼" for the case where Steps A-C confirm cron firing + LLM executing + LLM doing real work BUT no GH-side artifacts AND no boss-merge-PR deadlock — i.e. employee is genuinely idle despite having open work.
+
 ---
 
 ## 6. The 5 Numbers That Always Go in §0 (一页速读)
@@ -313,6 +558,8 @@ Every 2h report must include the 5 numbers below in the 健康度 table. The bos
 | Number of 🔴 items in §2 | count from the 风险 table |
 
 **Added 2026-07-15:** add a 6th number when relevant — **cron liveness diagnosis** from §2.5. If "stale-verdict deadlock", the 6th row should say so explicitly (e.g. "team deadlock: 22h49m since last external action, cron firing every 30min, LLM [SILENT]"). Boss uses this to distinguish "system down" from "team stuck waiting on each other".
+
+**Added 2026-07-18:** the 6th number, when boss-merge-PR deadlock is the diagnosis, should also include the **merge-readiness line**: e.g. "boss-merge-PR deadlock: PR #14/#15/#13 all reviewer-PASSed; `gh pr merge 14 15 13` is the one-line unblock". This makes the §6 A/B/C menu optional instead of required.
 
 ---
 

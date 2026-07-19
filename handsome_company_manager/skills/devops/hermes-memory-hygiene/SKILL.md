@@ -190,6 +190,37 @@ he.close()
 - [ ] If Hindsight `reflect()` skipped: housekeeping records (a) why skipped (failure signature or environmental gate), (b) what boss action items remain open, (c) when the previous actual Hindsight attempt was (log mtime)
 - [ ] `USER.md` unchanged (only update on actual user-profile changes, not on mtime)
 
+## HF_TOKEN state detection — distinguish absent vs commented vs empty
+
+When reporting the `HF_TOKEN` remediation status in housekeeping, **don't say "absent" when the line is actually commented out or empty** — these three states imply different boss actions and conflating them wastes the boss's attention. Verification recipe (use on every Hindsight-skip housekeeping entry):
+
+```python
+from pathlib import Path
+env = Path("~/.hermes/profiles/<profile>/.env").expanduser()
+text = env.read_text(encoding='utf-8')
+state = "absent"     # no HF_TOKEN=*** row at all
+for line in text.splitlines():
+    s = line.strip()
+    if s.startswith("# HF_TOKEN"):
+        state = "commented out"   # row present, prefix is '#'
+        break
+    if s.startswith("HF_TOKEN=***        val = s.split("=",1)[1].strip()
+        state = "empty" if not val or val in ('""', "''") else "set"
+        break
+print(f"HF_TOKEN state: {state}")
+```
+
+Boss-action mapping:
+
+| State | What boss has to do |
+|---|---|
+| `absent` | Add a new `HF_TOKEN=*** line |
+| `commented out` | Uncomment the existing line **and** set a real value (two steps, easy to miss the second) |
+| `empty` | Fill in the value on the existing line |
+| `set` | Diagnose elsewhere — HF_TOKEN alone is not the blocker |
+
+History from this skill's housekeeping: the 2026-07-11 .. 2026-07-17 entries all reported `HF_TOKEN` as "absent" / "NOT set". The 2026-07-18 run discovered the line is actually present-but-commented — a different shape than the entries had been implying. Future runs should classify before reporting.
+
 ## Files
 
 - `references/hindsight-bank.md` — Hindsight config schema, full `llm_provider` list, env-var matrix, and log signatures for common failure modes

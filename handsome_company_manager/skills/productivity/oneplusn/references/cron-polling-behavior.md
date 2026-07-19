@@ -97,6 +97,8 @@ If `[SILENT]` keeps firing for days on the same smoke-test Issue, **that is corr
 
 **Re-confirmed (2026-07-16, 7 days idle):** Same Issue #2, PM cron tick at the standard 15/45 cadence. No new comments, no label change, `updatedAt` still 2026-07-09T12:22:34Z. Correctly fired `[SILENT]` again. The other open issue (#8, P1) is assigned to `Handsome-Review`, NOT to the PM persona — so even the "is this my problem?" check must be persona-based, not CLI-account-based. Confirms §2's `--assignee <persona>` rule holds across weeks of inactivity, not just the first poll.
 
+**Re-confirmed (2026-07-19, 10 days idle):** Same Issue #2, same `updatedAt=2026-07-09T12:22:34Z`, still `status:in-progress` with `priority:P3` and 1 comment (the persona's own welcome, signed `— 项目牧羊人 · Handsome-Manager`). Correctly fired `[SILENT]`. Also exercised the §6 PAT-scope refinement on this tick: `gh search` returned 10 candidates (1 in `handsome-s-company/agent_workflow` + 9 in `handsome-oneplusn-company/agent_workflow`), but the persona token can only reach the home org — see the `/user/repos` false-negative note in §6 for the corrected filter.
+
 ---
 
 ## 6. Pitfalls
@@ -122,14 +124,33 @@ If `[SILENT]` keeps firing for days on the same smoke-test Issue, **that is corr
 - **`gh issue list --json commentsCount` is rejected on newer `gh` CLI** (learned 2026-07-16, PM poll tick). Newer `gh` versions renamed the field to `comments` and now reject the old name with `Unknown JSON field: "commentsCount"` plus a full `Available fields:` dump (which itself contains `comments`, not `commentsCount`). The doc's examples still use `commentsCount`; if you copy them verbatim and hit `gh >= 2.50` or so, you'll see the error. **Fix:** swap `commentsCount` → `comments` in your `--json` flag list. `gh search issues --json commentsCount` from the search endpoint still works (separate code path) — only the `issue list` / `issue view` JSON fields were renamed. Spot-check your first run.
 - **Don't reload the persona token in a tight loop.** Reading `.env` once per poll is fine; re-parsing it per API call is wasted I/O and another chance to hit the redactor. Cache the token (and the verified login) at the start of the poll, re-use for the whole run, don't print it. The `scripts/verify_github_identity.sh` helper already does this once at Gateway startup - the polling LLM should call that or read the cached value, not re-derive.
 
-- **Persona fine-grained PAT may be scoped to a DIFFERENT org than what the boss's `gh` CLI shows** (learned 2026-07-18, PM cron poll tick). The boss's `gh` CLI is a wide-scope OAuth token that can **read** issues across every org the boss belongs to — but the persona's fine-grained PAT has explicit `repository selection`, often only the original org (e.g. `handsome-s-company/agent_workflow`), not the active work org (e.g. `handsome-oneplusn-company/agent_workflow`). Symptom: `gh search issues --assignee Handsome-Manager` returns 9 candidate issues, all from `handsome-oneplusn-company`, but `POST /repos/handsome-oneplusn-company/agent_workflow/issues/N/comments` returns `404 Not Found` for every one (verified on the 2026-07-18 tick — burned 4 calls before realizing the org mismatch). `gh issue list` against the persona's reachable org (`handsome-s-company/agent_workflow`) correctly returned only 1 PM-assigned issue (the smoke test). Detection (run before ANY write op):
+- **Persona fine-grained PAT may be scoped to a DIFFERENT org than what the boss's `gh` CLI shows** (learned 2026-07-18, PM cron poll tick). The boss's `gh` CLI is a wide-scope OAuth token that can **read** issues across every org the boss belongs to — but the persona's fine-grained PAT has explicit `repository selection`, often only the original org (e.g. `handsome-s-company/agent_workflow`), not the active work org (e.g. `handsome-oneplusn-company/agent_workflow`). Symptom: `gh search issues --assignee Handsome-Manager` returns 9 candidate issues, all from `handsome-oneplusn-company`, but `POST /repos/handsome-oneplusn-company/agent_workflow/issues/N/comments` returns `404 Not Found` for every one (verified on the 2026-07-18 tick — burned 4 calls before realizing the org mismatch). `gh issue list` against the persona's reachable org (`handsome-s-company/agent_workflow`) correctly returned only 1 PM-assigned issue (the smoke test). The `gh auth status` line (`Logged in to github.com account handsomehu80`) does NOT tell you the persona's PAT scope — `gh auth` reflects the CLI account, not the persona. Verification must come from the persona token itself. Fix at enumeration time: prefer `gh issue list --repo <persona-reachable-org>` over `gh search issues --assignee <persona>`, because the search endpoint queries the CLI account's wider index. If you do hit a 404 on a write op, do NOT retry with a different verb — drop the issue from this poll's work list and move on. This also explains why the same persona can read its own assigned issues via `gh search` (boss's wider scope) but cannot comment on them (persona's narrow scope).
+
+  **Refinement — `/user/repos` is a false-negative pre-flight check for direct-collaborator personas** (learned 2026-07-19, PM cron poll tick). The original detection recipe was:
   ```python
   req = urllib.request.Request("https://api.github.com/user/repos?per_page=100",
       headers={"Authorization": "token " + TOK, ...})
   reachable = {r["full_name"] for r in json.load(urllib.request.urlopen(req))}
   # Only enumerate issues whose org is in `reachable`. Everything else is read-only via the boss's gh.
   ```
-  The `gh auth status` line (`Logged in to github.com account handsomehu80`) does NOT tell you the persona's PAT scope — `gh auth` reflects the CLI account, not the persona. Verification must come from the persona token itself. Fix at enumeration time: prefer `gh issue list --repo <persona-reachable-org>` over `gh search issues --assignee <persona>`, because the search endpoint queries the CLI account's wider index. If you do hit a 404 on a write op, do NOT retry with a different verb — confirm the org is in `/user/repos` first; if not, drop the issue from this poll's work list and move on. This also explains why the same persona can read its own assigned issues via `gh search` (boss's wider scope) but cannot comment on them (persona's narrow scope).
+  This recipe **silently excludes the persona's own reachable repos** when the persona has *direct repository-level collaborator access* but is *not* an org member. Verified on 2026-07-19: PM persona `Handsome-Manager` has fine-grained PAT scoped to `handsome-s-company/agent_workflow` (direct repo collaborator, NOT org member). `/user/repos?per_page=100&affiliation=collaborator` returned **0 repos reachable** — yet `GET /repos/handsome-s-company/agent_workflow/issues/2` returned **200 OK** and the persona could have commented on it. Following the recipe literally would have caused PM to skip its only assigned open Issue (the smoke test) and emit `[SILENT]` even though there was a real (if quiet) Issue to monitor.
+
+  **The authoritative per-repo reachability check** is a direct `GET /repos/<owner>/<repo>` (or `GET /repos/<owner>/<repo>/issues/<N>` if you have a specific Issue number). 200 → reachable for writes; 404 → not reachable, drop from this poll's work list. Recipe for the corrected filter:
+  ```python
+  import urllib.request, json
+  HEADERS = {"Authorization": "token " + TOK, "Accept": "application/vnd.github+json",
+             "User-Agent": "hermes-pm-poll"}
+  def repo_reachable(owner, repo):
+      try:
+          urllib.request.urlopen(urllib.request.Request(
+              f"https://api.github.com/repos/{owner}/{repo}", headers=HEADERS), timeout=10).read()
+          return True
+      except urllib.error.HTTPError as e:
+          return e.code != 404  # 403/401 = token problem (treat as not reachable this poll)
+  # For each candidate Issue, run repo_reachable(<org>, <repo>) BEFORE any write op.
+  # Drop silently if False.
+  ```
+  When to use which check: `/user/repos` is still a useful **fast pre-filter** to drop obviously-unreachable orgs (saves N round-trips when `gh search` returns 9 candidates from 3 different orgs and only 1 is the persona's home org) — but treat its `len == 0` result as "no org memberships discovered", not "no repos reachable". Always confirm with a per-repo `GET` before any write op, and don't drop candidates that pass the per-repo check just because `/user/repos` was empty. The cost of the extra `GET` (1 round-trip per unique repo) is much smaller than the cost of skipping a real assigned Issue because of a false-negative pre-filter.
 
 ---
 

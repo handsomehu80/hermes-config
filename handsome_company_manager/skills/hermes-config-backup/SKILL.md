@@ -1,7 +1,7 @@
 ---
 name: hermes-config-backup
 description: "Back up a Hermes Agent profile's configuration to a GitHub repository — discover the repo layout, sync config files while honoring the existing .gitignore, commit, and push. Use when a cron job or user asks to back up Hermes profile config, mirror `~/.hermes/profiles/<profile>/` to a remote git repo, or set up daily/periodic config snapshots. Covers the canonical backup set (config.yaml, SOUL.md, channel_directory.json, memories/, cron/jobs.json, custom skills), the `.bundled_manifest` filter for distinguishing custom skills from bundled ones, Windows Git Bash MSYS gotchas, the `github.com:443` firewall fallback to the GitHub REST API, the Git Data API `BadObjectState` trap when committing 100+ blobs, the parallel-by-dir Contents API push pattern (grouped PUTs avoid the 409 sibling race; serial within dir), nested `.git/` and git-submodule handling, and a re-runnable Python sync script that works on any platform."
-version: 1.4.0
+version: 1.5.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -306,12 +306,93 @@ These hit during real syncs and will hit again. Full reproduction recipes in [`r
    git status --porcelain | wc -l                                          # small number
    git status --porcelain | awk '{print $2}' | xargs -I{} dirname {} | sort -u  # only your subdir
    ```
-8. **`Path("/c/Users/...")` becomes a UNC path** (`\\c\Users\...`) when Python is invoked from MSYS bash. Always use `Path("C:/Users/...")` (forward slashes) for paths inside Python scripts. `bash /tmp` itself is `C:\Users\Administrator\AppData\Local\Temp\` (or whatever `%LOCALAPPDATA%` resolves to for the user) — `C:\tmp` is a separate directory that may not exist.
-9. **`write_file` with a relative path** in `terminal`/`patch` tools resolves against the **active workspace** (e.g. `~/.hermes/profiles/<name>`), not the bash `cwd`. If a file needs to land in `bash /tmp` (e.g. `C:/Users/Administrator/AppData/Local/Temp/...`), pass an absolute path. A script that "can't be found" by `python <path>` after `write_file` usually means the file went to a different tree.
-10. **Python output is line-buffered to stderr/stdout even with `tee`** — when a long-running script pipes to `tee push_log.txt`, the log file may not update for 30+ seconds even though work is happening. Run with `python -u` (unbuffered) or `PYTHONUNBUFFERED=1` so progress prints in real time. This is a Python quirk, not MSYS.
-11. **`$` in PowerShell via `bash -c "powershell -Command ..."`** gets eaten by bash before PowerShell sees it. `$_` becomes empty. Either write the PowerShell to a `.ps1` file and `powershell -File path.ps1`, or use `bash -lc` carefully. Confirmed with `Get-Process ... | Where-Object { $_.Name -like 'python*' }`.
+8. **CRLF pollution from tarball extraction (Windows API-fallback path) — different from the `git clone` CRLF fix above** (NEW 2026-07-18)
+
+   When using the API-fallback path on Windows (`curl` from `codeload.github.com` → `tar -xzf` → `cp -r` to staging), text files like `.gitignore`, `config.yaml`, etc. end up with **CRLF line endings** even though the tarball had LF. Windows `cp` (or the tar extraction layer) silently converts LF to CRLF during the copy.
+
+   **Symptom:** diff computed by SHA-256 (no normalization) shows `.gitignore`, `config.yaml`, `channel_directory.json`, etc. as "modified" — but the bytes are byte-identical after `replace(b'\r\n', b'\n')`. Pure line-ending noise.
+
+   **How this differs from the `git clone` CRLF fix above (item 7):** the `git clone` path's fix is `git config core.autocrlf false` + `git checkout HEAD -- .`. The API-fallback path doesn't use git at all, so the fix is different — **normalize at hash time, not on disk**:
+
+   ```python
+   def sha_lf(p):
+       return hashlib.sha256(p.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
+   ```
+
+   Then any file whose LF-normalized SHA matches the original is correctly classified as "unmodified" and skipped. Don't try to fix the on-disk files (e.g. `Path.write_bytes(orig_bytes)` for `.gitignore`) before computing the diff — that's the right call for `.gitignore` (which is `PRESERVE_IN_REMOTE`), but doing it for every file would erase legitimate CRLF differences from local config edits. Normalize-at-hash-time is the surgical fix.
+
+   **Verification after normalization:** `git status --porcelain | wc -l` should drop to single digits, with no `.gitignore` entry. If it doesn't, you forgot to normalize the hash function.
+
+9. **`Path("/c/Users/...")` becomes a UNC path** (`\\c\Users\...`) when Python is invoked from MSYS bash. Always use `Path("C:/Users/...")` (forward slashes) for paths inside Python scripts. `bash /tmp` itself is `C:\Users\Administrator\AppData\Local\Temp\` (or whatever `%LOCALAPPDATA%` resolves to for the user) — `C:\tmp` is a separate directory that may not exist.
+10. **`write_file` with a relative path** in `terminal`/`patch` tools resolves against the **active workspace** (e.g. `~/.hermes/profiles/<name>`), not the bash `cwd`. If a file needs to land in `bash /tmp` (e.g. `C:/Users/Administrator/AppData/Local/Temp/...`), pass an absolute path. A script that "can't be found" by `python <path>` after `write_file` usually means the file went to a different tree.
+11. **Python output is line-buffered to stderr/stdout even with `tee`** — when a long-running script pipes to `tee push_log.txt`, the log file may not update for 30+ seconds even though work is happening. Run with `python -u` (unbuffered) or `PYTHONUNBUFFERED=1` so progress prints in real time. This is a Python quirk, not MSYS.
+12. **`$` in PowerShell via `bash -c "powershell -Command ..."`** gets eaten by bash before PowerShell sees it. `$_` becomes empty. Either write the PowerShell to a `.ps1` file and `powershell -File path.ps1`, or use `bash -lc` carefully. Confirmed with `Get-Process ... | Where-Object { $_.Name -like 'python*' }`.
 
 ## Common Pitfalls (learned the hard way)
+
+### diff JSON key naming: script expects `new_paths`/`modified_paths`, natural computation produces `added`/`modified` (NEW 2026-07-18)
+
+`scripts/push_via_contents_parallel.py` reads the diff with:
+```python
+diff = json.loads(args.diff.read_text())
+changes = diff["new_paths"] + diff["modified_paths"]
+```
+But the natural diff computation (SHA-256 walk) produces `added` / `modified` keys. The two are not interchangeable — passing `added` → `KeyError: 'new_paths'`.
+
+**Fix:** when preparing the diff file for the script, rename:
+```python
+adapted = {"new_paths": diff["added"], "modified_paths": diff["modified"], "removed_paths": diff["removed"]}
+Path("diff_push.json").write_text(json.dumps(adapted))
+```
+Or change the script's read to use `.get("new_paths", diff.get("added", []))` for both directions.
+
+### Contents API retry-with-backoff doesn't refresh the blob SHA — actively-written files always 409 (NEW 2026-07-18)
+
+The bundled `push_via_contents_parallel.py` retries 409s with exponential backoff — but the retry **uses the SHA fetched on the first GET**, not a fresh one. For files that change frequently (`cron/jobs.json` updates on every cron tick, `cron/output/` grows every minute, anything touched by a running gateway), the blob SHA goes stale faster than the backoff window, so every retry 409s until exhaustion.
+
+**Symptom:** `409 "is at X but expected Y"` for files like `cron/jobs.json`, even with 3 retries. The retry count doesn't help because the SHA is stale.
+
+**Fix:** re-fetch the blob SHA AND re-read the local content INSIDE each retry attempt. Working pattern (used in PM backup 2026-07-18, succeeded on attempt 1 of retry):
+
+```python
+for attempt in range(5):
+    # Refresh both: the remote SHA may have moved, and the local file may have grown
+    meta = req("GET", f"/repos/{repo}/contents/{api_path}?ref={branch}", token)
+    body["sha"] = meta["sha"]
+    body["content"] = base64.b64encode(local_path.read_bytes()).decode("ascii")
+    try:
+        req("PUT", f"/repos/{repo}/contents/{api_path}", token, body)
+        return "ok"
+    except RuntimeError as e:
+        if "409" in str(e):
+            time.sleep(1 * (2 ** attempt))
+            continue
+        raise
+```
+
+**Files that race the cron**: `cron/jobs.json` (every cron tick), `channel_directory.json` (when channels connect/disconnect), `gateway_state.json` (often — but excluded), `processes.json` (excluded). Treat any "actively written" file as needing this pattern. The bundled script's current retry does NOT refresh SHA — a real gap.
+
+### Git submodules on remote cannot be written via Contents API — pre-detect and skip (NEW 2026-07-18)
+
+When `skills/<foo>/scripts/` (or any other path) is a git submodule on the remote — i.e. `type: "commit"`, `mode: "160000"` in `git/trees?recursive=1` — the Contents API returns `409 "Sorry, a file exists where you're trying to create a subdirectory"` for every file you try to PUT under that path. The parallel script wastes 1-2 minutes pushing 14 files that all fail.
+
+**Real case (2026-07-18):** `handsomehu80/hermes-config` has `handsome_company_manager/skills/productivity/oneplusn/scripts` as a git submodule (sha `11a2b16c`). 14 script files in that dir were "new" per the local-vs-remote diff, all 409'd, none pushed. Correct call was to skip them — the submodule pointer is intentional (it's shared with `handsome_company_reviewer/skills/productivity/oneplusn/scripts` which is a regular tree in the same repo, suggesting the PM profile's scripts/ is the canonical source).
+
+**Pre-detection pattern** (run BEFORE push, before computing the diff to avoid wasted work):
+
+```python
+import subprocess, json
+r = subprocess.run(['gh','api','repos/<owner>/<repo>/git/trees/main?recursive=1'],
+                  capture_output=True, text=True)
+tree = json.loads(r.stdout)['tree']
+submodule_paths = {e['path'].removeprefix('<profile>/')  # strip profile prefix
+                   for e in tree if e.get('type') == 'commit'}
+# Then filter the diff:
+filtered_added = [p for p in added if p not in submodule_paths]
+filtered_modified = [p for p in modified if p not in submodule_paths]
+```
+
+Or run the pre-detection as part of the push script: for each path in the diff, `GET /repos/<owner>/<repo>/contents/<api_path>?ref=main` — if the response is `type: "submodule"` (a few GitHub API responses include this), skip. Note: Contents API `GET` for a submodule path returns the submodule's metadata, NOT a 404 — so a successful GET is not enough to know it's writable.
 
 ### `hermes cron list` `last_status` reflects the LLM agent, not the subprocess
 
