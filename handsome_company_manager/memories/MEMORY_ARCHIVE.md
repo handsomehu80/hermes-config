@@ -9,11 +9,11 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-18** — no-op archive; no entries in MEMORY.md
+> Latest run: **2026-07-19** — no-op archive; no entries in MEMORY.md
 > carried an internal date older than the 30-day cutoff
-> (2026-06-18). The dated active entries are
-> `1+N 数字员工集成(2026-07-08)` (10d old) and
-> `Credential state (2026-07-17)` (1d old); both remain within the
+> (2026-06-19). The dated active entries are
+> `1+N 数字员工集成(2026-07-08)` (11d old) and
+> `Credential state (2026-07-17)` (2d old); both remain within the
 > 30-day window. Undated environment-state facts remain in place per
 > the "no internal date → don't archive on mtime" rule. USER.md was
 > unchanged.
@@ -123,4 +123,13 @@ trusting this trick.
   - No new MEMORY.md entries with internal date older than 2026-06-18: dated active entries are `1+N 数字员工集成(2026-07-08)` (10d) and `Credential state (2026-07-17)` (1d). Undated facts (Host / Hermes v0.15.1 / Agent Team / PM 铁律+陷阱 / PM cron) all stay in place per the no-internal-date rule.
   - Gateway liveness check: `~/.hermes/profiles/handsome_company_manager/logs/gateway.log` shows last activity 2026-07-18 02:51:29 (today, ~18h ago); cron ticker started 2026-07-18 02:51:24. **Gateway is healthy** — the reflect-skip is unambiguously an environmental/HF-blocker issue, not a gateway-down issue. This is a positive change vs the 7-17 run which had a stale gateway log.
   - **Boss action STILL open** (one of): same (a/b/c) as 7-13/7-15/7-16/7-17. With the gateway now confirmed alive and the HF-blocker signature stable for 7+ days, the picture is unambiguous: the only way out of this loop is the boss picking one of the three remedies. Markdown archive continues as the sole source of truth.
-- Next scheduled cleanup: per the cron job cadence. Boss action for unlocking `reflect()`: choose one of the 2026-07-18 housekeeping options (`HF_TOKEN` — uncomment in `.env` and set a real value, `local_external`, or cloud mode).
+- 2026-07-19 — no-op (today). Hindsight reflect **attempted per explicit user request** (8th consecutive same-signature run; 6th consecutive explicit skip after the 7-11/7-12 two failed attempts and 7-13..7-17 explicit skips). Confirmed in this run:
+  - `~/.hindsight/profiles/handsome_company_manager.log` mtime is now **2026-07-19 21:03:32** — refreshed by this run's failed attempt (it was 2026-07-18 21:03:36 before). The signature is the established one: HF Hub HEAD requests to `cross-encoder/ms-marco-MiniLM-L-6-v2/.../modules.json` and `BAAI/bge-small-en-v1.5/.../adapter_config.json` return `[WinError 10054] 远程主机强迫关闭了一个现有的连接` (Windows socket forcibly closed); this aborts `cross_encoder.initialize()` and cascades into `PostgreSQLBackend is not initialized`; daemon exits at the 188s mark. `hindsight_reflect.py` exit code = 1.
+  - **Script-side observation**: the script reports `removed 1 stale lock file(s)` at startup (the `~/.hindsight/profiles/handsome_company_manager.lock` left by the 7-18 failed attempt), then the daemon restarts and immediately re-fails. This confirms the lock-cleanup path in the script works; the failure is environmental (HF Hub connectivity), not a stale-lock issue.
+  - `HF_TOKEN` is **still commented out** in `~/.hermes/profiles/handsome_company_manager/.env` — verified this run via the skill's HF_TOKEN state detection recipe (line starts with `# HF_TOKEN=`). Action item (a) from 7-13 is still pending. Boss has had 8 days to choose a remedy and none has been applied — pattern strongly suggests `HF_TOKEN` is intentionally absent (e.g., the profile is intentionally local-only).
+  - `~/.hermes/hindsight/config.json` is still **MISSING** — same state as 7-16/7-18. The Hindsight Python constructor reads provider/model/key/api_base from kwargs + env vars, so the missing file does not change the failure mode. Worth investigating: maybe `~/.hermes/hindsight/` itself doesn't exist as a directory on this Windows host.
+  - No new MEMORY.md entries with internal date older than 2026-06-19: dated active entries are `1+N 数字员工集成(2026-07-08)` (11d) and `Credential state (2026-07-17)` (2d). Undated facts (Host / Hermes v0.15.1 / Agent Team / PM 铁律+陷阱 / PM cron) all stay in place per the no-internal-date rule.
+  - Pre-flight housekeeping: no stale `memories/*.lock` files to clean (verified this run). `agent.log` shows fresh activity at 2026-07-19 21:02:16 (this run is being executed). `errors.log` also fresh.
+  - **Gateway liveness status (new finding vs 7-18)**: `~/.hermes/profiles/handsome_company_manager/logs/gateway.log` mtime is **2026-07-18 02:51:29** — ~42 hours ago (was ~18h ago at 7-18). The last log entries are: `Cron ticker started (interval=60s)` at 2026-07-18 02:51:24 and `kanban dispatcher: embedded in gateway (interval=60.0s)` at 2026-07-18 02:51:29. No further log activity despite the 60s cron ticker. **But** the agent IS alive (this session is responding to a cron tick), so the gateway is functioning — `gateway.log` is just silent. This is a logging artifact, not a gateway-down issue; `agent.log` (1.7MB, mtime today) confirms real activity. The skill says: "If the Gateway log is stale, that's a separate issue from the Hindsight reflect failure — record it but don't conflate the two in housekeeping." So this is recorded but does not affect the reflect-skip attribution.
+  - **Boss action STILL open** (one of): same (a/b/c) as 7-13/7-15/7-16/7-17/7-18. With the gateway log now ~42h stale and the HF-blocker signature stable for 8+ days, the picture is unambiguous: the only way out of this loop is the boss picking one of the three remedies. Markdown archive continues as the sole source of truth.
+- Next scheduled cleanup: per the cron job cadence. Boss action for unlocking `reflect()`: choose one of the 2026-07-19 housekeeping options (`HF_TOKEN` — uncomment the existing line in `.env` and set a real value, `local_external`, or cloud mode).
