@@ -1,7 +1,7 @@
 ---
 name: pm-bi-hourly-status-report
 description: "PM's recurring every-2-hours status report playbook — data collection, 3-state classification, report template, pitfalls."
-version: 1.3.0
+version: 1.4.0
 parent_skill: oneplusn
 metadata:
   hermes:
@@ -237,22 +237,28 @@ Real case (2026-07-19 PM #54): the `handsome_company_developer` profile had **25
 
 ### The right check: per-friendly-name classifier
 
-Use `scripts/check_pm_cron_liveness.py` (re-runnable, exits non-zero if any real job is dead):
+Use `scripts/check_pm_cron_liveness.py` (re-runnable, exits non-zero if any **selected** real job is dead). For the 2h report, filter to polling jobs; daily backup/cleanup jobs are not expected to fire in every 2h window:
 
 ```bash
-python scripts/check_pm_cron_liveness.py --profile handsome_company_developer --window-hours 24
+# Canonical PM bi-hourly check: 30-minute polling jobs only
+python scripts/check_pm_cron_liveness.py --profile handsome_company_developer --window-hours 2 --task-polling-only
 
-# Sample output:
-# PM cron liveness for handsome_company_developer (window=24h, since 2026-07-18T20:00Z)
-#   real jobs=3  shadow-dups=3  healthy=3  dead=0
+# Separate full-profile audit: 26h covers daily backup/cleanup jobs with schedule jitter
+python scripts/check_pm_cron_liveness.py --profile handsome_company_developer --window-hours 26
+
+# Sample polling-only output:
+# PM cron liveness for handsome_company_developer (window=2h, since 2026-07-18T20:00Z)
+#   real jobs=1  shadow-dups=1  healthy=1  dead=0
 #   friendly name                       verdict                markers small LLM-runs
-#   oneplusn-dev-task-polling           🟢 alive (real LLM)         0     0      48
-#   oneplusn-DEV-task-polling           DUPLICATE-shadow (noise)   48     0       0
-#   oneplusn-dev-config-backup          🟢 alive (real LLM)         0     0       1
-#   oneplusn-DEV-config-backup          DUPLICATE-shadow (noise)    1     0       0
-#   oneplusn-dev-memory-cleanup         🟢 alive (real LLM)         0     0       1
-#   oneplusn-DEV-memory-cleanup         DUPLICATE-shadow (noise)    1     0       0
+#   oneplusn-dev-task-polling           🟢 alive (real LLM)         0     0       4
+#   oneplusn-DEV-task-polling           DUPLICATE-shadow (noise)    4     0       0
 ```
+
+### Mixed-cadence and reviewer-alias traps
+
+- **Never interpret `--window-hours 2` without `--task-polling-only` as an employee-health verdict.** It includes daily config-backup/memory-cleanup jobs, which correctly have zero output in most 2h windows; the aggregate exit code will be non-zero even while task polling is healthy.
+- Use `--window-hours 26` for all-job audits so daily schedules have a jitter buffer.
+- Historical reviewer duplicates use asymmetric names: working `oneplusn-rev-*` versus shadow `oneplusn-REVIEW-*`. The probe canonicalizes `REVIEW → rev`; do not count the uppercase marker-only row as a second real reviewer job.
 
 The script's `n_real_jobs` and `n_healthy` numbers are exactly what §3 摸鱼信号 needs. The `latest real` column gives the timestamp to cite in §3's "本期动作" row. The "DUPLICATE-shadow" rows are reported but flagged as **noise** — they don't affect the §2.5 4-state classification (they don't represent the LLM-side; they're Known Fix #13 wrapper artifacts).
 
@@ -540,6 +546,8 @@ print(f'Since 2h cutoff: {len(recent)}')
     }
     ```
     If 12h shows N≥1 and 2h shows N=0, the team is **healthy between sprints** — not 摸鱼. Report this as "expanded window shows last activity at `<YYYY-MM-DDTHH:MM:SSZ>`, Δt = Nh"; the §3 contribution table's 摸鱼信号 column should show "🟡 0 (extended window shows activity at <time>)". Reserve the 摸鱼 flag for the genuine case: 12h empty on a team with open assigned Issues (stale-verdict-deadlock from §2.5).
+
+22. **Never emit a literal "#N" or "#N+1" placeholder in the report title — always fill in the actual number (learned 2026-07-19, PM #63 run).** §5 #6 above says to count from cron install (read `<profile_home>/cron/jobs.json`, find first `.md` to anchor). The pitfall: in recent bi-hourly reports in `cron/output/d26c66fbbdd0/`, several reports wrote `#N` or `#N+1` *literally* as the title placeholder instead of the resolved integer. Example: report at 18:03 CST wrote `#61`; report at 20:03 CST wrote `#N+1` (a placeholder, not a number); the next reader can't tell whether the count is 62, or "N+1 where N is from the previous report", or "N+1 where N is the cron lifetime count". **Always resolve to an integer before publishing.** If unsure, walk the report dir by mtime, count `.md` files since the first one (anchor), and use that integer. The regex `#\s*(\d{1,3})(?:\s|\(|期|UTC|CST)` will pollute results with PR numbers (13/14/15) if applied to the report's own body — anchor on the title alone, or count `.md` files by mtime to be safe.
 
 21. **The "[SILENT] = 摸鱼" false positive: cron-firing + LLM-silent ≠ idle (added 2026-07-18).** A common PM error: see "0 commits + 0 comments in 2h" → tag 摸鱼. But the [SILENT] cron output (see §2.5 Step C) shows the LLM is doing exactly what its skill says to do when there's no new feedback: return `[SILENT]`. The diagnostic chain is: (1) §2.5 Step A confirms cron firing (fresh .md in output dir); (2) §2.5 Step B confirms LLM executing (file > 50KB); (3) §2.5 Step C confirms LLM verdict (`[SILENT]`); (4) §2.5 Step D shows open assigned Issues, if any. Only after ALL four checks should you tag 摸鱼. In the 2026-07-18 PM run, both dev and reviewer were returning `[SILENT]` correctly under the skill — not 摸鱼, but "waiting for boss to merge PRs" (boss-merge-PR deadlock per §2.7). The §3 contribution-table row should show "0 commit / 0 评论" but with the §2.5 4-state label (e.g. "🟢 healthy idle" or "🔴 boss-merge-PR deadlock"), NOT "🔴 摸鱼". Reserve "🔴 摸鱼" for the case where Steps A-C confirm cron firing + LLM executing + LLM doing real work BUT no GH-side artifacts AND no boss-merge-PR deadlock — i.e. employee is genuinely idle despite having open work.
 
