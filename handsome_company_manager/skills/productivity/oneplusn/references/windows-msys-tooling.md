@@ -108,6 +108,57 @@ MSYS_NO_PATHCONV=1 gh api /repos/foo/bar
 gh repo view foo/bar
 ```
 
+## Pitfall 5 — `/tmp/` writes work, but Python read-back does not
+
+MSYS bash **does** translate `/tmp/foo` to a real Windows path (typically
+`D:\tmp\foo` or `%USERPROFILE%\AppData\Local\Temp\foo` — depends on
+`/etc/fstab`) for *shell-builtin* redirects and most native binaries. But
+**Python's `open()` running in the same MSYS bash does not apply the same
+translation** — it interprets `/tmp/foo` literally as a POSIX-style path on
+a drive root that Windows has no concept of. Symptom (seen on the
+2026-07-20 PM bi-hourly report run):
+
+```bash
+# Step 1 — this works, MSYS translates /tmp/ → D:\tmp\
+gh api "repos/foo/bar/issues/comments?per_page=50" > /tmp/comments.json
+ls -la /tmp/comments.json      # shows the file, ~170KB
+
+# Step 2 — this fails, Python sees /tmp/ as literal CWD-relative
+python -c "import json; json.load(open('/tmp/comments.json'))"
+# FileNotFoundError: [Errno 2] No such file or directory: '/tmp/comments.json'
+```
+
+Real location was `D:\tmp\comments.json`. `os.path.realpath('/tmp/comments.json')`
+inside the same Python script returns the translated path, which confirms
+the file exists — Python just isn't applying the MSYS path mapping that
+bash applied on the redirect.
+
+**Fix recipes (pick one):**
+
+1. **Write directly to a Windows path that doesn't need translation:**
+   ```bash
+   OUT="C:/Users/Administrator/AppData/Local/Temp/comments.json"
+   gh api "repos/foo/bar/issues/comments?per_page=50" > "$OUT"
+   python -c "import json; json.load(open(r'$OUT', encoding='utf-8'))"
+   ```
+
+2. **Use `pathlib.Path` + `os.path.realpath` to discover the MSYS root:**
+   ```python
+   import os, pathlib
+   p = pathlib.Path(os.path.realpath('/tmp/comments.json'))   # resolves MSYS translation
+   data = p.read_text(encoding='utf-8')
+   ```
+
+3. **Set `MSYS_NO_PATHCONV=1` for the whole script** — disables MSYS path
+   translation in the surrounding bash, so `/tmp/` will be treated
+   literally everywhere (including the redirect). Usually wrong because
+   other commands will also start failing on Windows paths.
+
+**Rule of thumb:** never round-trip a `/tmp/` file between a bash redirect
+and a Python read in the same terminal() call. Either write straight to
+`C:/Users/.../AppData/Local/Temp/`, or use `pathlib` to discover the real
+path Python sees.
+
 ## Verification recipe after any `.env` ACL / content change
 
 ```bash
