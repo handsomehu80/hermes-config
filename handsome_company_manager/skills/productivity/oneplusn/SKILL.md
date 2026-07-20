@@ -1,7 +1,7 @@
 ---
 name: oneplusn
 description: "1+N digital company — boss + N AI employees. Bootstrap a one-person company where the user creates Issues in a private GitHub Org and N Hermes-based digital employees (different roles: developer, reviewer, architect, tester, project-manager, insight-specialist, research-analyst, security-engineer) autonomously claim, execute, review, and close tasks via cron polling. Use when user asks for '/oneplusn:init', '/oneplusn:add', '/oneplusn:status', '1+N digital employees', 'one-person company', 'AI employee team on GitHub Issues', or wants to add a digital worker to an existing team. Architecturally contrast with the existing multi-profile-team pattern (Kanban dispatcher, profiles in-process) — this skill uses GitHub Issues as the durable bus and per-employee cron polling instead."
-version: 1.2.0
+version: 1.2.1
 platforms: [linux, macos, windows]
 metadata:
   hermes:
@@ -101,7 +101,7 @@ python scripts/check_team_health.py --work-dir D:/onboarding/handsome-s-company
 python scripts/check_team_health.py --work-dir D:/onboarding/handsome-s-company --check-port
 ```
 
-For **PM bi-hourly cron liveness** specifically — oneplusn employees have 6 dirs per profile due to the duplicate-registration trap (§"Duplicate cron registration"), not 3 — use `scripts/check_pm_cron_liveness.py`. It walks all output dirs, classifies by file size (<1KB marker / ≥5KB real LLM), detects the UPPERCASE shadow duplicates, and emits a per-friendly-name verdict. Pair with `references/pm-bi-hourly-status-report.md` §2.12 for why the naïve `find-latest-mtime` approach gives the wrong answer here.
+For **PM bi-hourly cron liveness** specifically — oneplusn employees have 6 dirs per profile due to the duplicate-registration trap (§"Duplicate cron registration"), not 3 — use `scripts/check_pm_cron_liveness.py --profile <name> --window-hours 2 --task-polling-only`. It walks task-polling output dirs, classifies by file size (<1KB marker / ≥5KB real LLM), detects UPPERCASE shadow duplicates (including reviewer alias `REVIEW → rev`), and emits a per-friendly-name verdict. Do **not** run an all-job 2h verdict: daily backup/cleanup jobs correctly have no output in most 2h windows and would create a false red. Use `--window-hours 26` without the filter for a separate full-profile audit. Pair with `references/pm-bi-hourly-status-report.md` §2.12 for details.
 
 ### The 5 sub-commands as separate binaries (Windows-safe)
 
