@@ -58,3 +58,12 @@ desktop.ini
 .vscode/
 __pycache__/
 *.pyc
+
+# Additional sensitive/runtime exclusions
+auth.json
+.hermes_history
+gateway_state.json
+processes.json
+*.bak.*
+lsp/
+cron/output/
