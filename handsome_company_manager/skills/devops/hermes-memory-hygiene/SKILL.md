@@ -54,7 +54,7 @@ If the survey finds no 30+ day entries, just update the header + housekeeping (r
 
 The `MEMORY_ARCHIVE.md` housekeeping block grows by appending one `- YYYY-MM-DD — ...` bullet per cron run. **Patch edits must insert at the top level (sibling to prior dates), not as a sub-bullet of the previous date.** A real failure observed: the 7-15 entry was inherited as a sub-bullet under 7-14 (a previous patch matched a too-narrow `old_string` and captured the 7-14 bullet as context), and then 7-16 nested inside 7-15 — a 3-level nesting that is structurally wrong.
 
-**Prevention:** when appending a new run entry, anchor `old_string` to the `## Archive housekeeping` heading + the first `- Created:` line, NOT to the last date's bullet. Verify after edit that all date entries are siblings at the same indentation level (no extra leading spaces before `- YYYY-`). If a nesting bug is found, rewrite the entire `## Archive housekeeping` block at once with all entries at the same level.
+**Prevention:** when appending a new run entry, anchor `old_string` to the `## Archive housekeeping` heading + the first `- Created:` line, NOT to the last date's bullet. Verify after edit that all date entries are siblings at the same indentation level (no extra leading spaces before `- YYYY-`). If a nesting bug is found, rewrite the entire `## Archive housekeeping` block at once with all entries at the same level. Run `python scripts/verify_housekeeping_structure.py <profile>` for an automated check (exit code 0 = siblings OK, 1 = nesting issues found with line numbers).
 
 ## Pre-flight housekeeping (always do before the archive sweep)
 
@@ -84,6 +84,23 @@ These are tiny, fast checks that catch problems BEFORE they cascade into the arc
        # Expect fresh activity within last 60 minutes if cron is healthy
    ```
    Last `Cron ticker started (interval=60s)` line should be within the last 24h. If the Gateway log is stale, that's a separate issue from the Hindsight reflect failure — record it but don't conflate the two in housekeeping.
+
+3. **Distinguish "gateway.log silent" from "gateway dead" (added 2026-07-19).** A stale `gateway.log` does NOT prove the gateway is dead — the cron ticker may simply have stopped writing to that file (INFO-level logging dropped, log rotation, or the cron handler redirected). Real observed case: on the 2026-07-19 run, `gateway.log` mtime was **~42 hours stale** (was ~18h on 7-18, has been quietly deteriorating for several days), yet the cron was firing normally — this very session was started BY a cron tick. The signal that disambiguates is `agent.log` (and to a lesser extent `errors.log`), both of which sit beside `gateway.log` and are written by the agent loop, not the cron ticker:
+   ```python
+   from pathlib import Path
+   from datetime import datetime
+   logs = Path("~/.hermes/profiles/<profile>/logs").expanduser()
+   for name in ("agent.log", "errors.log"):
+       p = logs / name
+       if p.exists():
+           age = (datetime.now() - datetime.fromtimestamp(p.stat().st_mtime)).total_seconds() / 60
+           print(f"  {name:14s} mtime age: {age:.0f}m")
+   ```
+   **Tri-state diagnosis:**
+   - `gateway.log` stale, `agent.log` **fresh** → gateway is alive; `gateway.log` is just not being written to anymore (logging config change or rotation). This is a logging artifact, not a gateway-down condition. Record the staleness in housekeeping but do NOT attribute it to the reflect failure or to any cron-pipeline bug.
+   - `gateway.log` stale AND `agent.log` stale → real gateway-down issue. Investigate `errors.log`, `gateway-exit-diag.log`, and the scheduled task that should be restarting it.
+   - `gateway.log` fresh → all good, no follow-up needed.
+   The "positive change vs the 7-17 run which had a stale gateway log" wording in earlier housekeeping assumed `gateway.log` was authoritative; that assumption has been invalidated by the 2026-07-19 observation. Always check `agent.log` as the secondary signal before declaring gateway health.
 
 ## Hindsight reflect (advanced organization)
 
@@ -184,8 +201,8 @@ he.close()
 - [ ] `MEMORY.md` contains no entries with an internal date before the cutoff
 - [ ] `MEMORY_ARCHIVE.md` header records the latest run date and a one-line summary
 - [ ] Housekeeping section at the bottom of `MEMORY_ARCHIVE.md` updated
-- [ ] **All date entries in housekeeping are siblings at the same indentation level** (no nested `- YYYY-MM-DD` inside another date's bullet) — see Housekeeping structure pitfall above
-- [ ] Pre-flight housekeeping ran: stale `memories/*.lock` files cleaned, Gateway log mtime checked
+- [ ] **All date entries in housekeeping are siblings at the same indentation level** (no nested `- YYYY-MM-DD` inside another date's bullet) — see Housekeeping structure pitfall above. Automated check: `python scripts/verify_housekeeping_structure.py <profile>`
+- [ ] Pre-flight housekeeping ran: stale `memories/*.lock` files cleaned, Gateway log mtime checked, **and `agent.log` cross-checked** to disambiguate "log silent" from "gateway dead" (see Pre-flight §3)
 - [ ] If Hindsight `reflect()` ran: `client.list_mental_models(bank_id="hermes")` shows a fresh entry
 - [ ] If Hindsight `reflect()` skipped: housekeeping records (a) why skipped (failure signature or environmental gate), (b) what boss action items remain open, (c) when the previous actual Hindsight attempt was (log mtime)
 - [ ] `USER.md` unchanged (only update on actual user-profile changes, not on mtime)
@@ -226,6 +243,7 @@ History from this skill's housekeeping: the 2026-07-11 .. 2026-07-17 entries all
 - `references/hindsight-bank.md` — Hindsight config schema, full `llm_provider` list, env-var matrix, and log signatures for common failure modes
 - `references/lock-file-cleanup.md` — the 3 distinct `.lock` families (`memories/*.lock` vs `~/.hindsight/profiles/*.lock`), detection recipe, housekeeping structure verification, gateway liveness vs Hindsight skip distinction
 - `scripts/hindsight_reflect.py` — re-runnable `reflect()` runner. Loads the profile `.env`, overrides provider env vars, clears stale locks, starts the daemon, calls `reflect()`, and reports new vs existing mental models. Use instead of pasting the recipe above.
+- `scripts/verify_housekeeping_structure.py` — reads `MEMORY_ARCHIVE.md`, locates the `## Archive housekeeping` section, and verifies all top-level date bullets are at the same indent level (siblings) with sub-bullets at exactly indent=2. Catches the nesting pitfall described above. Read-only — never modifies the file.
 
 ### Quick re-run
 
