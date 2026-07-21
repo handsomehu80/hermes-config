@@ -82,13 +82,14 @@ A well-set-up backup repo has **one subdirectory per profile**, each containing 
 | Pattern | Why excluded |
 |---|---|
 | `.env`, `.env.*`, `*.key`, `*.pem`, `*.p12`, `*.pfx`, `secrets.*` | API keys and secrets |
+| `auth.json`, `.hermes_history` | Credential-pool metadata or pasted token fragments; never copy them into a backup |
 | `auth.lock`, `*.lock`, `gateway.lock`, `gateway.pid` | Runtime locks |
 | `state.db`, `state.db-shm`, `state.db-wal` | Runtime state database |
 | `audio_cache/`, `image_cache/`, `cache/`, `logs/`, `sessions/`, `plans/`, `workspace/` | Regenerable caches / transient state |
 | `gateway-service/`, `home/`, `pairing/`, `weixin/` | Runtime/pairing state, possibly creds |
 | `lsp/`, `node_modules/` | LSP language servers + their npm deps; **18MB+ of regenerable runtime**. The existing remote may predate LSP support — **add this if `lsp/` shows up in the diff**. |
 | `processes.json` | Runtime process state (PIDs, ports). Not config. |
-| `.hermes_history` | **Chat history — contains PAT fragments** the boss pasted (e.g. `github...Q6gJ`). If the previous remote's `.gitignore` did not exclude this, it is a security gap; add it. |
+| `gateway_state.json`, `cron/output/` | Runtime gateway state and per-run LLM output; regenerable and potentially sensitive. |
 | `*.bak.*` (e.g. `config.yaml.bak.20260713_*`) | Old config backups. The active `config.yaml` is enough. |
 | `models_dev_cache.json`, `*.cache` | Model metadata cache |
 | `skills/.usage.json`, `skills/.usage.json.lock`, `skills/.bundled_manifest`, `skills/.curator_state`, `skills/.curator_backups/`, `skills/.archive/`, `skills/.hub/` | Skill bookkeeping (regenerable) |
@@ -109,6 +110,8 @@ gh repo view <authenticated_user>/hermes-config 2>&1 | head -5 # same-named user
 ```
 
 If `<user>/hermes-config` exists and has a `<profile>/` subdirectory, that's your target. Open the README there — it almost always documents the expected layout.
+
+Do not treat a same-named `hermes-config/<profile>/` directory inside a 1+N team work-dir as the GitHub backup target. That directory is only a collaboration-viewable copy under the workflow repository. Resolve and verify the actual backup repo with `gh repo view` plus `gh api repos/<owner>/<repo>/contents/<profile>`, then report the resolved owner/repo explicitly. If the user's shorthand names a missing org/repo but the authenticated user's `hermes-config` repo exists, prefer the existing user repo rather than creating or pushing to a guessed destination.
 
 ### 3. Clone into a fresh working directory
 
@@ -178,7 +181,7 @@ git diff -- <file>             # inspect specific changes
 git status --porcelain | awk '{print $2}' | xargs -I{} sh -c 'echo "{}"; head -3 "{}"'
 ```
 
-If any `.env*` file appears, **stop and remove it from staging** — `git restore --staged .env` then add a stronger exclusion.
+If any `.env*` file appears, **stop and remove it from staging** — `git restore --staged .env` then add a stronger exclusion. Apply the same hard stop to `auth.json`, `.hermes_history`, `state.db*`, `gateway_state.json`, `processes.json`, and any `skills/**/.git/` contents. When the target repo already contains a legacy `auth.json` and the request explicitly says to exclude sensitive files (especially for a public repo), delete that remote file via the Contents API and add `auth.json` to the profile `.gitignore`; otherwise leave it untouched and call out the separate cleanup needed.
 
 ### 6. Commit with a backup-style message
 
@@ -346,7 +349,7 @@ Path("diff_push.json").write_text(json.dumps(adapted))
 ```
 Or change the script's read to use `.get("new_paths", diff.get("added", []))` for both directions.
 
-### Contents API retry-with-backoff doesn't refresh the blob SHA — actively-written files always 409 (NEW 2026-07-18)
+### Contents API retries must refresh the blob SHA — actively-written files can 409 (NEW 2026-07-20)
 
 The bundled `push_via_contents_parallel.py` retries 409s with exponential backoff — but the retry **uses the SHA fetched on the first GET**, not a fresh one. For files that change frequently (`cron/jobs.json` updates on every cron tick, `cron/output/` grows every minute, anything touched by a running gateway), the blob SHA goes stale faster than the backoff window, so every retry 409s until exhaustion.
 
@@ -370,7 +373,7 @@ for attempt in range(5):
         raise
 ```
 
-**Files that race the cron**: `cron/jobs.json` (every cron tick), `channel_directory.json` (when channels connect/disconnect), `gateway_state.json` (often — but excluded), `processes.json` (excluded). Treat any "actively written" file as needing this pattern. The bundled script's current retry does NOT refresh SHA — a real gap.
+**Files that race the cron**: `cron/jobs.json` (every cron tick), `channel_directory.json` (when channels connect/disconnect), `gateway_state.json` (often — but excluded), `processes.json` (excluded). Treat any "actively written" file as needing this pattern. The bundled `push_via_contents_parallel.py` now re-reads the local bytes and refreshes the remote blob SHA inside every retry attempt. If a copied/older helper still fetches the SHA only once, update it before relying on retries.
 
 ### Git submodules on remote cannot be written via Contents API — pre-detect and skip (NEW 2026-07-18)
 

@@ -9,30 +9,31 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-19** — no-op archive; no entries in MEMORY.md
+> Latest run: **2026-07-20** — no-op archive; no entries in MEMORY.md
 > carried an internal date older than the 30-day cutoff
-> (2026-06-19). The dated active entries are
-> `1+N 数字员工集成(2026-07-08)` (11d old) and
-> `Credential state (2026-07-17)` (2d old); both remain within the
+> (2026-06-20). The dated active entries are
+> `1+N 数字员工集成(2026-07-08)` (12d old) and
+> `Credential state (2026-07-20)` (updated today); both remain within the
 > 30-day window. Undated environment-state facts remain in place per
 > the "no internal date → don't archive on mtime" rule. USER.md was
 > unchanged.
-> Hindsight is enabled (`memory.provider: hindsight`) and `reflect()`
-> was attempted once with provider `minimax` / model `MiniMax-M3`,
-> but the embedded daemon timed out after 188 seconds — **7th
-> consecutive** same-signature failure (see 7-11..7-17 entries below).
-> Log signature unchanged: Hugging Face HEAD requests for
-> `cross-encoder/ms-marco-MiniLM-L-6-v2` and `BAAI/bge-small-en-v1.5`
-> return `[WinError 10054] 远程主机强迫关闭了一个现有的连接`, so
-> cross-encoder initialization never completes; this cascades into
-> `PostgreSQLBackend is not initialized` and the daemon exits. No
-> mental model was created or updated. `HF_TOKEN` is still absent
-> (commented out in `.env`). The markdown archive remains authoritative
-> and no memory data was lost.
-> Positive change vs the 7-17 run: Gateway is now provably alive —
-> `logs/gateway.log` last write 2026-07-18 02:51 (today), cron ticker
-> started 2026-07-18 02:51:24. The reflect-skip is therefore not
-> attributable to gateway down.
+> Hindsight is enabled (`memory.provider: hindsight`), so `reflect()`
+> was attempted once with provider `minimax` / model `MiniMax-M3` and
+> the requested topic/recency/actionability consolidation query. The
+> embedded daemon timed out after 180 seconds; runner exit code = 1.
+> Current-run signature: `PostgreSQLBackend is not initialized. Call
+> initialize() first.` during daemon verification/startup. The retained
+> Hindsight log also contains the established HF cross-encoder failure
+> (`[WinError 10054]` / closed HTTP client), so the blocker remains
+> environmental. No mental model was created or updated. `HF_TOKEN` is
+> present but commented out in `.env`; markdown memory remains the
+> authoritative store and no data was lost.
+> Pre-flight found no `memories/*.lock`. After the failed reflect,
+> the fresh 0-byte Hindsight daemon lock was removed only after port
+> 9807 was confirmed not listening. `gateway.log` is stale (~66h), but
+> `agent.log` is current from this cron run, proving the agent/gateway
+> path is alive; the stale gateway log is a logging artifact, not the
+> cause of the Hindsight failure.
 
 ---
 
@@ -132,4 +133,10 @@ trusting this trick.
   - Pre-flight housekeeping: no stale `memories/*.lock` files to clean (verified this run). `agent.log` shows fresh activity at 2026-07-19 21:02:16 (this run is being executed). `errors.log` also fresh.
   - **Gateway liveness status (new finding vs 7-18)**: `~/.hermes/profiles/handsome_company_manager/logs/gateway.log` mtime is **2026-07-18 02:51:29** — ~42 hours ago (was ~18h ago at 7-18). The last log entries are: `Cron ticker started (interval=60s)` at 2026-07-18 02:51:24 and `kanban dispatcher: embedded in gateway (interval=60.0s)` at 2026-07-18 02:51:29. No further log activity despite the 60s cron ticker. **But** the agent IS alive (this session is responding to a cron tick), so the gateway is functioning — `gateway.log` is just silent. This is a logging artifact, not a gateway-down issue; `agent.log` (1.7MB, mtime today) confirms real activity. The skill says: "If the Gateway log is stale, that's a separate issue from the Hindsight reflect failure — record it but don't conflate the two in housekeeping." So this is recorded but does not affect the reflect-skip attribution.
   - **Boss action STILL open** (one of): same (a/b/c) as 7-13/7-15/7-16/7-17/7-18. With the gateway log now ~42h stale and the HF-blocker signature stable for 8+ days, the picture is unambiguous: the only way out of this loop is the boss picking one of the three remedies. Markdown archive continues as the sole source of truth.
-- Next scheduled cleanup: per the cron job cadence. Boss action for unlocking `reflect()`: choose one of the 2026-07-19 housekeeping options (`HF_TOKEN` — uncomment the existing line in `.env` and set a real value, `local_external`, or cloud mode).
+- 2026-07-20 — no-op archive (cutoff 2026-06-20). Dated active entries remain 2026-07-08 and 2026-07-20; the credential snapshot was corrected from “HF_TOKEN absent” to “present but commented out/inactive”. Undated current-state facts stay active. USER.md unchanged.
+  - Pre-flight: no stale `memories/*.lock`; `gateway.log` is ~66h stale, while `agent.log` is current from this cron run. Per the tri-state rule, the agent/gateway path is alive and the gateway-log staleness is only a logging artifact.
+  - Hindsight is enabled and `hindsight_reflect.py` was run with a topic/recency/actionability consolidation query. The embedded daemon timed out after 180s; exit code 1. Current-run signature: `PostgreSQLBackend is not initialized. Call initialize() first.` No mental model was created or updated.
+  - The retained Hindsight log still contains the established cross-encoder/Hugging Face failures (`[WinError 10054]` and `Cannot send a request, as the client has been closed`); `HF_TOKEN` is present but commented out. The failure remains environmental, and markdown memory remains authoritative.
+  - The failed daemon left a fresh 0-byte `handsome_company_manager.lock`; port 9807 was confirmed not listening, then the lock was removed. No memory data was lost.
+  - Boss action still open (choose one): uncomment `HF_TOKEN` and set a real value; switch Hindsight to `local_external`; or use cloud mode. The previous actual Hindsight attempt was 2026-07-19 21:03 (log mtime); this run refreshed the log at 2026-07-20 21:02.
+- Next scheduled cleanup: per the cron job cadence. Boss action for unlocking `reflect()`: choose one of the 2026-07-20 housekeeping options (`HF_TOKEN` with a real value, `local_external`, or cloud mode).

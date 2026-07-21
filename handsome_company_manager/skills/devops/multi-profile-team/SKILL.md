@@ -1,17 +1,24 @@
 ---
 name: multi-profile-team
-description: "Set up and operate a multi-profile Hermes agent team — create role-differentiated profiles (PM, engineer, QA, assistant), wire them through the Kanban dispatcher, and run end-to-end multi-step work that survives restarts. Use when user asks for 'an agent team', 'PM + engineer team', 'multi-agent collaboration', or wants a persistent team structure rather than single-shot delegate_task work."
-version: 1.0.0
+description: "Class-level umbrella for multi-agent team operations on Hermes — three coordinated sub-patterns: (1) Set up persistent profiles (PM/eng/qa/ast) wired through the Kanban dispatcher for in-process team work, (2) PM workflow for GitHub-Issues-based 1+N digital-employee teams (allocate / track / synthesize), (3) Worker polling pattern with anchor-state short-circuit for cron-driven task intake. Use when user asks for 'an agent team', 'PM + engineer team', 'multi-agent collaboration', or any distributed-team orchestration that survives restarts."
+version: 2.0.0
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [multi-agent, profiles, kanban, team, orchestration, persistent-roles]
+    tags: [multi-agent, profiles, kanban, team, orchestration, persistent-roles, pm-workflow, worker-polling, cron-intake, github-issues, anchor-state]
     related: [kanban-orchestrator, kanban-worker, hermes-agent, hermes-setup-audit]
+    absorbed_from: [pm-team-orchestration, agent-task-polling]
 ---
 
 # Multi-Profile Team
 
-Class-level playbook for building and running a persistent team of Hermes agent profiles that collaborate via the Kanban dispatcher. Distinct from `delegate_task` (synchronous subagent, one-shot) and from tmux-spawned long-lived sessions (interactive only). This skill is the **team setup and operational pattern**; `kanban-orchestrator` covers what the orchestrator profile does; `kanban-worker` covers what each worker should know.
+Class-level umbrella for multi-agent team operations on Hermes. Three coordinated sub-patterns, each its own labeled section below:
+
+1. **§ Setup Workflow** — persistent profiles wired through the Kanban dispatcher for in-process team work (the original `multi-profile-team` content)
+2. **§ PM Workflow — GitHub-Issues Variant** — PM-side allocate/track/synthesize rules for distributed 1+N digital-employee teams (folded in from the now-archived `pm-team-orchestration` skill)
+3. **§ Worker Polling Pattern** — anchor-state short-circuit for cron-driven task intake (folded in from the now-archived `agent-task-polling` skill)
+
+Distinct from `delegate_task` (synchronous subagent, one-shot) and from tmux-spawned long-lived sessions (interactive only). For the orchestration-side playbook see `kanban-orchestrator`; for worker-side pitfalls see `kanban-worker`.
 
 ## When to Use
 
@@ -253,6 +260,268 @@ Workers (eng, qa, ast) run inside the dispatcher and inherit the gateway's `appr
 
 For a team that needs to run scripts autonomously, set `approvals.mode: off` for the team profiles (`hermes -p eng config set approvals.mode off`) or `hermes -p <name> tools disable` the risky tools so workers don't try to use them. The cost is reduced safety on those profiles.
 
+## PM Workflow — GitHub-Issues Variant
+
+The Kanban dispatcher (§ Setup Workflow) is the in-process pattern. There is also a **GitHub-Issues-based variant** where the PM profile dispatches work via `gh issue create`, workers poll GitHub for new assignments, and comments serve as the audit trail. This pattern fits teams that span **multiple machines or operator identities**, where each worker has its own GitHub login and SOUL.md and polls a shared repo. Use it instead of the Kanban dispatcher when:
+
+- The team is genuinely distributed (different repos, different operators)
+- The user wants the audit trail and discussion visible in GitHub UI
+- Workers have their own bot personas on GitHub (not just profiles in one install)
+- Existing tooling (e.g. oneplusn) was designed for GitHub-Issues dispatch
+
+The PM-side workflow rules are identical in spirit — allocate, track, synthesize, never do the worker's job — but the verbs change.
+
+### PM Role — Hard Rules
+
+The user's two explicit rules (verbatim):
+
+> "你的责任是分配好工作,同时管理好任务的进展"
+> "不要越俎代庖,谁的活谁干"
+
+Operationalized:
+
+- **Allocate** — pick the right role for each task. Match the *action verb in the task body* to the *verb the SOUL was written for*. A developer SOUL cannot do critical design thinking; a reviewer SOUL cannot write production code.
+- **Track** — at every checkpoint, ask "is each in-flight issue making expected progress?" Do not assume silence = stuck. Do not assume activity = healthy. Use the verification methodology below.
+- **Synthesize** — only AFTER all in-flight issues are closed. The boss reads one deliverable, not five.
+- **Never** — write code on behalf of developer, audit on behalf of reviewer, or take over a worker task because "it's faster". The cost is real even if it's invisible (next worker will deprioritize, next worker will assume PM handles it, team memory of who-does-what degrades).
+
+### Right-Person / Right-Task Matrix
+
+| Task action verb | Right role | Anti-pattern |
+|---|---|---|
+| "research / audit / critique / scorecard" | reviewer (or research-analyst SOUL) | PM doing it themselves; developer "since they're already in the file" |
+| "implement / build / PoC / run a real thing" | developer | reviewer (because they want a fresh angle); PM (because they want it done right) |
+| "verify / validate PoC / cross-check prior work" | reviewer | developer (since they built it — bias); PM (combines both audit + impl bias) |
+| "synthesize / cross-cut / decide / write final report" | PM | anyone doing it themselves before all upstream work is closed |
+
+If a task genuinely doesn't fit any existing role, **ask the boss which role to create** — don't invent a worker or assign to a mismatched role.
+
+### Issue Dispatch Pattern
+
+For each worker task, the GitHub Issue body must include:
+
+1. **Title** with prefix `[<priority>][<topic>][<role>]` so the worker can grep for their own work easily. Example: `[P2][Insight][Reviewer] 审计 3 份报告`.
+2. **Body sections**: 背景 / 输入(参考文件 URL) / 任务 / 验收标准 / 6 铁规提示 / 期望响应时间. The "期望响应时间" matters — it bounds when the worker should self-escalate if blocked.
+3. **Single assignee** (`gh issue create --assignee <github_username>`). PM creates the issue; the worker's cron poll picks it up.
+4. **Labels**: PM owns labels. `type:research / type:feature / type:verification / type:docs` + `priority:P1/P2/P3` + `status:todo/in-progress/review/done/blocked`.
+5. **For dependent tasks**: include `等 #<blocker_issue_num> close 后再开干` in the body, NOT a separate "blocker" Issue. Reviewers respect the rule and won't claim early.
+
+For multiple parallel tasks, create them in one terminal batch (parallel `gh issue create` calls). Don't sequentially issue + wait + issue + wait — that's micro-management.
+
+### The "Wait for Team Then Synthesize" Workflow
+
+This is a **batch-completion pattern**, not a streaming pattern. The PM does NOT synthesize partial outputs. The PM waits for **all** in-flight issues to close, then delivers a single integrated deliverable to the boss.
+
+```
+PM dispatch N issues  ──→  workers do work in parallel  ──→  PM observes (silently)
+                                                            ↓
+                                                    any closed? → continue waiting
+                                                    any blocked? → surface to boss
+                                                            ↓
+                                                    all closed?  ──→  PM synthesizes
+                                                            ↓
+                                                    boss gets ONE deliverable
+```
+
+What PM does NOT do during the wait:
+- ❌ Nudge workers with comments ("how's it going?")
+- ❌ Synthesize partial outputs ("here's a draft while we wait")
+- ❌ Pre-write the final report ("I'm getting started on the structure")
+- ❌ Add new issues mid-flight ("oh also can you...")
+
+What PM DOES during the wait:
+- ✅ Silent observation: read new comments when they arrive
+- ✅ Track state in `todo`: which issues are in_progress / done / blocked
+- ✅ On `status:blocked` label: surface to boss immediately with options
+
+What PM does AFTER all close:
+- Read every deliverable file
+- Cross-reference outputs for consistency (do the reviewer's audit and dev's PoC agree?)
+- Produce a single "boss can use this directly" artifact — usually a markdown report + index of supporting files
+- Report back with: what was delivered, where it lives, what the boss should do next
+
+### Quality Verification Methodology ("是不是有人在摸鱼")
+
+The user explicitly asked: "你要仔细检查每个 issue 完成的质量,是不是有人在摸鱼". This is **not optional** — it is the PM's job at every checkpoint. Distinguishing "real progress" from "stuck" from "shirking" requires specific evidence beyond just reading comment counts.
+
+The 6-source evidence checklist:
+
+| Source | Where to look | What it tells you |
+|---|---|---|
+| 1. **GitHub Issue comments** | `gh api /repos/<org>/<repo>/issues/<n>/comments` | Whether the worker is communicating. Frequency of updates vs claim time. |
+| 2. **Git commits on default branch** | `git log --all --since="<claim_time>" --author=<worker>` | Whether code is actually being written. Empty + claim > 1 hour = red flag. |
+| 3. **Open PRs** | `gh pr list --state all --author <worker>` | Whether work is being surfaced for review. Empty + multi-hour claim = red flag. |
+| 4. **Workspace files** | `ls -la <repo>/workspaces/issue-<N>/` (if used) | Per-task working directory; presence of source files = real work in progress. |
+| 5. **Scratchpad state** (Ralph-style) | `<workspace>/.ralph/` directory | Engineered trace of what the worker attempted, evaluated, decided. |
+| 6. **Smoke test output** | Run the test script directly | Last-mile verification that what was committed actually runs. |
+
+### Priority misrouting vs shirking — the critical distinction
+
+When a worker shows "claim 9 hours ago, 0 progress on Issue A, but workspace has commits on Issue B", do NOT immediately call it shirking. The likely diagnosis is one of:
+
+| Symptom | Likely diagnosis | NOT |
+|---|---|---|
+| Workspace commits on Issue B, 0 on Issue A | **Priority misrouting** — worker self-prioritized, possibly defensibly (B might be lower-friction to start) | shirking |
+| Workspace empty, last comment is the claim | **Stuck** — gateway issue, model issue, tooling blocker | shirking |
+| Workspace commits but no PR / no GitHub comment update | **Communication gap** — work done, no surfacing. Possibly iron-rules violation | shirking |
+| Claim comment + nothing for hours + config backup cron still firing | **Gateway desync** — gateway alive, polling firing, but the worker turn is broken | shirking |
+| Multiple claim comments, no real work, no smoke tests | **Possibly shirking** — but first check if the claim comments are genuine (some debugging probes look identical to claims) | — |
+
+**Always investigate before labeling.** Run the workspace `ls`, check git log, look at scratchpad files, THEN form a hypothesis. The wrong call ("you're shirking!") damages trust with a worker who might genuinely be stuck on a tooling issue.
+
+When you find priority misrouting, do not seize the work. Surface to the boss with:
+- Evidence (which workspace has commits, which doesn't)
+- Diagnosis (priority misrouted, P1 skipped for P2)
+- 2-3 options the boss can pick from (A: nudge worker; B: open a new diagnostic issue; C: re-route the work)
+
+### PM Workspace Pattern (recommended)
+
+For each developer task, expect (or create) a per-issue workspace:
+
+```
+<repo>/workspaces/issue-<N>/
+├── .git/                     # git repo, branch `feat/issue-<N>-<topic>`
+├── hello.sh + hello_test.sh  # smoke-test artifacts (created early)
+├── poc/                      # PoC scripts
+│   ├── ralph-loop.sh
+│   ├── evaluator.sh
+│   └── scratchpad-template.md
+├── docs/                     # local docs (before merge)
+├── tests/                    # local tests
+└── .ralph/                   # scratchpad state (Ralph-style)
+    ├── builder-prompt-*.md
+    ├── evaluator-prompt.md
+    ├── evaluator-diff.txt
+    └── comment-*.md          # prepared comments NOT YET posted to GitHub
+```
+
+PM signal: presence of `workspaces/issue-<N>/` with a recent commit timestamp means the worker is in active development. Absence means either not started or already merged + cleaned up.
+
+### GitHub-Issues Pitfalls
+
+- **Acting on assumption that silence = shirking.** Always check the 6 evidence sources first. 9 hours of silence with a real workspace + real commits = priority misrouting, not shirking.
+- **Adding new tasks mid-flight.** Once the batch is dispatched, do not issue new asks until the batch closes. Mid-flight additions cause worker context fragmentation and break the batch-completion pattern.
+- **Trusting self-reports in comments.** A comment saying "I'll have this done in 2 ticks" is a forecast, not evidence. Cross-check with commits + workspace files before believing.
+- **Issuing to wrong role.** A developer SOUL cannot do critical design thinking; a reviewer SOUL cannot write production code. If you find yourself thinking "I'll just have the developer audit this real quick" — stop, that's reviewer's job.
+- **Skipping the verification step because the worker said "done".** Workers can claim completion prematurely (Anthropic paper: "Claude would mark features complete after superficial testing"). The verification methodology is the PM's last defense against this.
+- **Trying to be the reviewer when reviewer is available.** If you have a reviewer employee and you start auditing a PoC yourself, you are doing reviewer's job.
+- **Calling `gh` from MSYS-bash without `MSYS_NO_PATHCONV=1`** — see claude-package-to-hermes-skill pitfall #3 for the fix.
+- **Modifying worker `.env` files in-place from terminal** — terminal can read them (sandbox-bypass) but should treat them as immutable from PM's perspective. If a worker lost their credential, the worker (or boss) recovers it; PM surfaces the issue but doesn't paste the new PAT themselves.
+
+## Worker Polling Pattern (cron-driven task intake)
+
+Each worker runs as a cron job that scans a queue for new feedback on its assigned work. The proven pattern is **anchor-state short-circuit**: track last-seen state per task, only do work on diff, suppress output when nothing changed.
+
+### When to apply this pattern
+
+- Cron fires every 15–60 min to scan a queue for new work
+- Need to suppress notification when nothing has changed (cron delivery defaults to notify)
+- Source system exposes a queryable API and supports state comparison (GitHub Issues, GitHub Notifications, etc.)
+
+### Core: Anchor-State Short-Circuit
+
+Capture a per-task anchor before doing any work:
+
+- Identifier (URL / ID / queue position)
+- `updated_at` / last-modified timestamp
+- Comment count + last comment ID (or analogous "last activity" marker)
+- Labels / status fields (sorted for stable comparison)
+- Last event (actor, type, timestamp)
+
+**Compare each field against the anchor:**
+- All anchor fields match → output `[SILENT]` → no notification
+- Any field differs → process the diff → structured report
+
+This pattern has run 100+ consecutive polls successfully on a stable smoke-test fixture with no change, producing zero noise. The anchor can be sourced from the previous cron run's recorded output — no separate state file required for fixtures that genuinely don't drift. A starter template is in `templates/anchor-state.json`.
+
+### GitHub Implementation
+
+`gh issue list --assignee @me` **fails outside a git repo** ("fatal: not a git repository") and `gh search issues --assignee @me` returns empty for non-standard assignees (bot personas). Use REST `/issues?filter=assigned` instead — it works cross-repo with no git context.
+
+```bash
+# Cross-repo assigned issues (no git context required)
+gh api '/issues?filter=assigned&state=open' \
+  --jq '.[] | {number, title, updated_at, comments, html_url, repo: .repository_url}'
+
+# Specific login via REST search
+gh api 'https://api.github.com/search/issues?q=is:open+assignee:<login>' \
+  --jq '.items[] | {number, title, updated_at, comments, html_url}'
+
+# GraphQL alternative when REST returns empty
+gh api graphql -f query='query {
+  search(query: "is:open assignee:<login>", type: ISSUE, first: 50) {
+    nodes { ... on Issue { number title updatedAt url
+      repository { nameWithOwner }
+      comments(first: 0) { totalCount } } }
+  }
+}'
+
+# Per-issue deep state (REST)
+gh api /repos/<owner>/<repo>/issues/<n>            # main fields + assignee
+gh api /repos/<owner>/<repo>/issues/<n>/comments   # comment IDs + bodies
+gh api /repos/<owner>/<repo>/issues/<n>/events     # label/reassignment/close events
+
+# Notifications — separate channel for @mentions, review requests
+gh api '/notifications' \
+  --jq '[.[] | {id, reason, subject: .subject.title, updated_at, repository: .repository.full_name}]'
+```
+
+Full copy-pasteable reference in `references/github-polling-commands.md`.
+
+### Assignee Identity Resolution
+
+The session's GitHub login (e.g. `handsomehu80`) often differs from the bot persona recorded on issues (e.g. `Handsome-Manager`). The bot may post via the user's OAuth token without having its own GitHub login — `assignee:<session-login>` will miss it.
+
+Resolution steps:
+1. Get session login: `gh api /user --jq '.login'`
+2. Get issue assignee(s): `gh api /repos/.../issues/<n> --jq '.assignee.login, .assignees[].login'`
+3. If session login ≠ issue assignee, broaden the search:
+   - `involves:<session-login>` (any participation: comments, mentions, labels)
+   - Direct `<org>/<repo>` queries for known fixture repos
+4. Cache the resolved identity in the anchor so subsequent polls don't re-resolve
+
+### Decision Matrix
+
+| Notifications | Anchor drift | Action |
+|---------------|--------------|--------|
+| empty | none | output `[SILENT]` |
+| empty | yes | process the drift → structured report |
+| non-empty | any | investigate each notification |
+| empty | none, BUT last_verdict_age > Nh AND last_verdict_actor ≠ self | **stale-verdict deadlock** → ping once, do NOT `[SILENT]` |
+
+### Output Format (cron delivery)
+
+- Cron job delivery: reply text only — the runtime handles routing
+- `[SILENT]` (exact string, nothing else) suppresses notification when nothing to report
+- Drift detected: structured report including issue number, repo, URL, anchor→current diff, and recommended action
+
+### Stale-Verdict Deadlock (Iron Rule #8 candidate)
+
+When side A writes a verdict ("NEEDS_WORK — waiting on side B"), and side B's poll template classifies that verdict as "no new feedback from A since my last comment" → side B returns `[SILENT]`. Side A's next poll does the symmetric check. **Both sides `[SILENT]` forever** despite the cron firing every tick and the LLM executing every time.
+
+The anchor-state short-circuit assumes "no drift = no work" — that's true for **inert** state but **wrong for asymmetric wait states** (one side IS waiting on the other, but the wait-signal doesn't look like a new comment from the polling side's perspective).
+
+Diagnose by reading the LAST line of the latest `<profile_home>/cron/output/<job_id>/*.md` — if it ends with `[SILENT]` AND `cron output` is fresh AND there are open issues assigned to the polling agent → that's deadlock, not cron death.
+
+Fix pattern: include `last_verdict_actor` + `last_verdict_age_hours` in the anchor; if age > N hours AND last verdict was the OTHER side → emit a ping ("this Issue is X hours stale, please confirm whether action is needed") instead of `[SILENT]`. Iron Rule #8 candidate: *stale-verdict ping* — every open Issue with no anchor drift AND >48h since last verdict must emit one ping per 24h, not silent. Full diagnostic recipe and reproduction commands in `references/stale-verdict-deadlock.md`.
+
+### Worker Polling Anti-Patterns
+
+- **Reporting "no issues found" every poll** → user gets spammed with noise
+- **Recomputing the full diff each poll** instead of comparing to anchor → wasteful
+- **Hard-coding the assignee login** → breaks when the bot persona or token rotates
+- **Skipping the `events` endpoint** → misses label changes that don't bump `updated_at`
+- **Skipping `/notifications`** → misses @mentions and review requests that don't appear in assigned issues
+- **Loading anchor from a separate state file** when the previous cron output already records it → unnecessary I/O
+
+### Worker Polling Pitfalls
+
+- `gh issue list --assignee @me` errors with "fatal: not a git repository" outside a repo. Use REST.
+- `assignee:@me` in GraphQL search may not match bot personas. Resolve the literal login first.
+- `updated_at` does not change for label-only events on some issue types — always check events.
+- REST `/issues?filter=assigned` may paginate silently — set `?per_page=100` and follow `Link: rel="next"` for large queues.
+- `gh api graphql` exits non-zero on a successful query with warnings — don't conflate exit code with success when checking GraphQL output.
+
 ## Workflow Variants
 
 The 4-card chain (T1 ast → T2 eng → T3 qa → T4 pm) is the canonical pattern, but real work needs variations.
@@ -312,8 +581,12 @@ Monthly:
 - `references/4-profile-recipe.md` — battle-tested 4-role split with toolset matrix and observed runtime budgets, folded in from the now-archived `agent-team-orchestration` skill
 - `references/why-kanban-not-subagent.md` — design rationale: why persistent profiles + Kanban dispatch rather than `delegate_task` subagents for "team" work
 - `references/profile-backup-to-github.md` — recipe for backing up a single profile's config (excluding `.env`, `state.db*`, caches, skill-curator metadata) to a GitHub repo, including cron-context pitfalls (no `rm -rf`, no `execute_code`) and Windows HOME-override gotcha
+- `references/github-polling-commands.md` — copy-pasteable GitHub REST/GraphQL snippets for cron-driven worker polling (folded in from the now-archived `agent-task-polling` skill)
+- `references/stale-verdict-deadlock.md` — full diagnostic recipe + Iron Rule #8 candidate: cron firing but both sides `[SILENT]` indefinitely (folded in from the now-archived `agent-task-polling` skill)
+- `references/loop-engineering-roadmap.md` — the team's 90-day Loop Engineering evolution plan, distilled from PM insight work (folded in from the now-archived `pm-team-orchestration` skill)
 - `templates/4card-chain.sh` — script that creates the canonical 4-card T1→T2→T3→T4 chain
 - `templates/pilot-first.sh` — script for skeleton+pilot-data→verify (used by case-study-knowledge-base)
+- `templates/anchor-state.json` — anchor-state template for worker polling pattern (folded in from the now-archived `agent-task-polling` skill)
 - `templates/pm-soul.md` — starter SOUL.md for the PM orchestrator role
 - `templates/eng-soul.md` — starter SOUL.md for the engineer role
 - `templates/qa-soul.md` — starter SOUL.md for the QA reviewer role

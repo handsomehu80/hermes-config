@@ -1,14 +1,15 @@
 ---
 name: illustrated-journal-companion
-description: "Process existing illustrated journals, diaries, or sketchbooks (PDF or image set) and produce (1) lightly polished text that preserves the original voice, (2) multimedia companions such as Suno music prompts per page, and (3) optional narrated mp3s (TTS reading + background music + mixed output). Use when the input is real artwork + handwritten or typed notes, not when generating new illustrations."
-version: 1.2.0
+description: "Class-level umbrella for illustrated-content production on Hermes. Three modes under one skill: (1) Polish existing illustrated journals/diaries (PDF or image set) — light text polish + per-page multimedia companions (Suno prompts, optional narrated mp3s). (2) Direct audio-only storybook mode — pre-rendered TTS readings + background music per segment + mixed mp3s + flipbook HTML viewer (no polish step). (3) PDF bundling — landscape A4 picture-book with images + polished text + music references. Use when the input is real artwork + handwritten/typed notes (modes 1 & 3), OR when the user wants the audio-only flipbook experience with existing (image, text) pairs (mode 2)."
+version: 2.0.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [journal, illustrated-diary, child-art, music-companion, suno, multimedia, tts, audiobook, ffmpeg]
+    tags: [journal, illustrated-diary, child-art, music-companion, suno, multimedia, tts, audiobook, ffmpeg, audio-storybook, flipbook, picture-book]
     related_skills: [ocr-and-documents, songwriting-and-ai-music, baoyu-comic, baoyu-article-illustrator]
+    absorbed_from: [audio-storybook-production]
 triggers:
   - child illustrated diary
   - sketchbook with notes
@@ -20,14 +21,27 @@ triggers:
   - 有声画册
   - mp3 narration
   - audiobook from PDF
+  - audio storybook
+  - 翻页绘本
+  - make these drawings speak
+  - flipbook HTML
+  - per-entry narration + background music
+  - mobile-friendly viewer
 ---
 
 # Illustrated Journal Companion
 
-For when someone hands you an **existing** illustrated document — a child's
-"一日一画" booklet, a family travel journal with photos, a student science
-portfolio — and asks you to enhance it (polish text, add music, make it
-shareable). The output is a polished companion, NOT new artwork.
+Class-level umbrella for **illustrated-content production on Hermes**. Three modes under one skill — pick the one that matches the user's actual ask:
+
+| Mode | Input | Output | When |
+|---|---|---|---|
+| **§ Polish Journal** (Steps 1-6) | Existing illustrated journal (PDF or image set) | Polished markdown companion (text + Suno prompts) + optional PDF bundle + optional audio | User says "润色+配音乐", "optimize this daily-drawing PDF", "把这本日记做成有声绘本" |
+| **§ Audio Storybook Mode** (this section) | Existing (image, text) pairs that DON'T need polishing | TTS mp3 per entry + mixed mp3 per entry + flipbook HTML viewer + serve.py for phone access | User says "把这些图文做成能在手机/平板看的", "翻页绘本 / 有声绘本", "make these drawings speak" — and the texts are already polished |
+| **§ PDF Bundling** (Step 6) | Polished entries + images | Landscape A4 picture-book PDF | User wants a printable book |
+
+The modes are independent — pick one and skip the rest. The audio + viewer stack that powers Mode 2 is the same machinery used by Mode 1's audio extension (Step 7). The scripts/ folder holds the battle-tested Python tools for both paths.
+
+> **Background:** This umbrella absorbed the now-archived `audio-storybook-production` skill. The complete audio production toolchain (`scripts/mix.py`, `scripts/regen_tts.py`, `scripts/verify_tts.py`, `scripts/generate_music.py`, `scripts/concat_story.py`) and the flipbook viewer (`templates/flipbook-viewer.html`, `templates/serve.py`) live here under the umbrella — see § Audio Storybook Mode below for direct usage without a polish step.
 
 ## When to use
 
@@ -314,19 +328,242 @@ script changes needed.
   the ffmpeg-synthesized beds as a working placeholder — the user can
   replace them later without touching code.
 
+## Mode 2: Audio Storybook (Direct, No Polish Step)
+
+When the user already has the (image, text) pairs they want — and just wants
+TTS + music + a flipbook viewer — skip Steps 1-6 entirely and use this mode.
+This is the path that used to live in the now-archived `audio-storybook-production`
+skill; the toolchain is identical to Step 7's audio stack but with its own
+scaffolding (manifest schema, flipbook viewer, serve.py for phone access).
+
+### When to use this mode
+
+Trigger phrases that should route here (and NOT to Mode 1):
+- "把这本画册配上朗读/音乐" / "make these drawings speak" — and the texts are already polished
+- "翻页绘本 / 有声绘本" / flipbook HTML — user wants a swipable viewer
+- "给每段配朗读和背景音乐" / per-entry narration + background music
+- "把这些图文做成能在手机/平板看的" / mobile-friendly viewer
+- "一日一画 / 一画一文" — when the daily-art already has accompanying text
+
+Do NOT use this mode for: pure song generation (use `media/heartmula` or
+`creative/songwriting-and-ai-music`); podcast-style monologue (no per-entry
+images); video export (separate mp4 pipeline).
+
+### Architecture (direct audio mode)
+
+```
+{project}/
+├── images/         # source drawings (page01_img1.jpeg ... pageNN_img1.jpeg)
+├── text source     # polished entry texts, one per drawing
+├── audio/
+│   ├── tts/        # one mp3 per entry (TTS only)
+│   ├── music/      # mood beds, one per mood (procedural or sourced)
+│   ├── mixed/      # TTS + bed, one per entry — what the viewer actually plays
+│   ├── manifest.json   # [{idx, date, theme, tts_text, music_prompt, image, audio}]
+│   ├── flipbook.html   # self-contained viewer (data inlined)
+│   └── README.md
+└── serve.py        # tiny local HTTP server for phone access over WiFi
+```
+
+Why this shape: keep **TTS, music bed, and mixed as separate folders** so the
+user can swap any layer (e.g. drop in a real Suno track to replace a
+procedural bed) and re-run just the mix step. The HTML viewer references
+`./mixed/` and `../images/` via relative paths so it works under `file://`
+AND over a local HTTP server.
+
+### Workflow (9 steps)
+
+```text
+[ ] Step 0: Probe environment (edge-tts + ffmpeg on PATH)
+[ ] Step 1: Build manifest.json from text source
+[ ] Step 2: Generate TTS per entry (scripts/regen_tts.py)
+[ ] Step 3: VERIFY TTS — language + duration sanity (scripts/verify_tts.py)
+[ ] Step 4: Generate or source background music beds (scripts/generate_music.py)
+[ ] Step 5: Mix TTS + bed per entry (scripts/mix.py)
+[ ] Step 6: Optionally concatenate into single "complete" mp3 (scripts/concat_story.py)
+[ ] Step 7: Build flipbook.html (templates/flipbook-viewer.html)
+[ ] Step 8: Test in a browser + verify audio playback
+[ ] Step 9: Deliver (file:// URL AND serve.py for phone access)
+```
+
+#### Step 0 — Probe environment
+
+Before anything else, confirm edge-tts is installed and a target voice works:
+
+```bash
+python -c "import edge_tts, asyncio
+async def m():
+    v = await edge_tts.list_voices()
+    zh = [x['ShortName'] for x in v if x['Locale'].startswith('zh-') and 'Xiaoxiao' in x['ShortName']]
+    print(zh[:3])
+asyncio.run(m())"
+```
+
+If it errors with `ModuleNotFoundError`, install: `python -m pip install edge-tts`.
+Also confirm `ffmpeg` and `ffprobe` are on PATH.
+
+#### Step 1 — Build manifest.json
+
+For N entries, produce a JSON array where each item has at minimum:
+
+```json
+{
+  "idx": 1,
+  "date": "3月6日",
+  "theme": "探秘红色火星",
+  "tts_text": "今天是 2026 年 3 月 6 日。2012年，\"好奇号\"火星车飞过长长的星河……",
+  "music_prompt": "Children's storybook adventure, wonder, warm piano, 90 BPM",
+  "image": "page04_img1.jpeg"
+}
+```
+
+`music_prompt` is for documentation/Suno-handoff only — the actual music bed
+for this mode is procedurally synthesized (Step 4). Keep `tts_text` natural
+and warm; for kids content, prepend a date announcement
+("今天是 2026 年 X 月 X 日") so it sounds like a daily diary.
+
+#### Step 2 — Generate TTS
+
+Use `edge-tts` with **explicit voice + rate**. Default voice selection by language:
+
+| Target language | Voice | Notes |
+|----------------|-------|-------|
+| Chinese (warm female) | `zh-CN-XiaoxiaoNeural` | Most natural storytelling voice |
+| Chinese (child-style) | `zh-CN-XiaoyiNeural` | Higher pitch, energetic |
+| Chinese (male) | `zh-CN-YunxiNeural` | For heroic / narrator tone |
+| English (female) | `en-US-JennyNeural` | |
+| Japanese (female) | `ja-JP-NanamiNeural` | |
+
+Rate `-5%` (slightly slower than default) reads more naturally to children.
+Save one mp3 per entry to `audio/tts/`. Use `scripts/regen_tts.py`.
+
+#### Step 3 — VERIFY TTS (do not skip)
+
+**This is the single most important step.** edge-tts can silently fall back to
+English when the package is broken, environment is degraded, or the user's
+locale conflicts with the voice. When it falls back, the mp3 still gets
+created — it just contains English-pronounceable fragments (often only the
+Arabic numerals, e.g. "2026 3 6") rather than the Chinese reading.
+
+**Heuristic check**: a full Chinese reading of a 100-150 character paragraph
+should be 20-35 seconds long. If a TTS file is **< 8 seconds** and the source
+text contains CJK characters, it's almost certainly English fallback —
+**regenerate, do not proceed**. Use `scripts/verify_tts.py` to scan all TTS
+files and flag anything suspect.
+
+#### Step 4 — Generate background music beds
+
+Two options:
+
+**(a) Procedural (always works, no API):** use `scripts/generate_music.py` to
+synthesize 5 mood beds via ffmpeg `lavfi`. See `references/mixing-parameters.md`
+for the canonical chain.
+
+**(b) Suno / external (better quality, manual):** user generates tracks on
+suno.com using the `music_prompt` from manifest.json, drops mp3s into
+`audio/music/`, then mix.py picks them up by mood name.
+
+Mood assignment lives in `scripts/mix.py`'s MOOD dict — edit there to remap
+entries to beds.
+
+#### Step 5 — Mix TTS + bed
+
+Per entry, build a filter chain:
+
+1. Pad TTS to `tts_dur + tail_extra` seconds (default tail = 1.8s music-only after speech)
+2. Loop bed to cover the same duration
+3. Apply `afade=t=in:st=0:d=0.4` (gentle bed fade in) and
+   `afade=t=out:st=end-1.8:d=1.8` (smooth out)
+4. Reduce bed volume by **-10 dB** (NOT -14 — too quiet for kid content; -10 sits cleanly under speech)
+5. `amix=inputs=2:duration=first` to combine
+6. `alimiter=limit=0.95` to prevent clipping
+7. Encode: 24000 Hz mono, 96 kbps
+
+If you change the bed volume, re-run the entire mix — partial re-mixes leave
+mismatched loudness across entries. Use `scripts/mix.py`.
+
+#### Step 6 — Concatenate (optional)
+
+Useful for "play the whole story" mode. Insert a 1.0s silence gap between
+entries. Final file ≈ `sum(durations) + (N-1) × 1.0` seconds. A typical
+19-entry child journal produces ~10 minutes. Use `scripts/concat_story.py`.
+
+#### Step 7 — Build flipbook.html
+
+Use `templates/flipbook-viewer.html` as a starting point. The template inlines
+the manifest as JSON (no CORS, works under `file://`). Key UX requirements:
+
+- **First-run gesture gate** (iOS Safari requires user tap before any `audio.play()` — even with pre-loaded src)
+- **Touch-friendly**: tap left half = prev, right half = next; swipe supported
+- **Keyboard**: ←/→ for prev/next, space for play/pause
+- **TOC overlay** with thumbnail grid; current page highlighted
+- **Auto-play toggle** in the footer (default ON after first gesture)
+- **Follow `prefers-color-scheme: dark`** for bedtime reading
+- **Mobile-portrait**: stack image+text vertically; **landscape ≥720px**: side-by-side
+
+The template already has all of these wired; only edit the
+entries-injection point and any color tweaks.
+
+#### Step 8 — Test in browser
+
+Open the page, walk through: gate → page 1 plays → next page → TOC jump →
+last page. For each page, confirm:
+
+- Counter `N / 19` matches
+- Date + theme text correct
+- Audio duration ≥ 20s for a normal paragraph (catches fallback)
+- Progress bar fills as audio plays
+- TOC thumbnails are the actual drawing thumbnails (`background-image`), not placeholders
+
+Use `browser_navigate` + `browser_console` (read `audio.duration` and
+`audio.currentTime`) for automation.
+
+#### Step 9 — Deliver
+
+Always give the user **both** options:
+
+1. **Direct file open**: `file:///D:/draw/audio/flipbook.html` — works
+   without any server, but iOS Safari may have stricter CORS for sibling files
+2. **Local server**: `python serve.py` → prints `http://<lan-ip>:8000/audio/flipbook.html`
+   for phone access over WiFi
+
+The `templates/serve.py` template handles LAN IP detection and
+Windows-compatible output. Set `Cache-Control: no-store` so re-mixed audio
+doesn't serve stale mp3s.
+
+### Verification checklist for Mode 2
+
+| Check | Pass criterion |
+|-------|----------------|
+| TTS file duration per entry | ≥ 15s for typical paragraph, ≥ 5s for short line |
+| Mixed file duration | TTS dur + 1.5-2.0s tail |
+| Mixed file volume profile | mean_volume > -32 dB, max_volume > -15 dB |
+| Browser playback | Page 1 plays, "下一页" advances counter + audio, TOC jumps work |
+
+If any check fails, do not deliver — fix the pipeline and re-run end-to-end.
+
 ## References
 
-- `references/suno-style-patterns.md` — extended mood-to-style cheat sheet
-  with 15+ tested patterns
-- `references/chinese-pdf-pitfalls.md` — ReportLab + Chinese fonts recipe;
-  font glyph coverage table, CJK wrap helper, landscape A4 layout, page
-  number / decorative band pitfall. Read this BEFORE doing PDF bundling.
-- `references/audio-production.md` — edge TTS Chinese voice trigger + ffmpeg
-  procedural music synthesis + TTS/music mixing recipe. Read this BEFORE
-  doing the audio narration extension (Step 7).
-- `templates/journal-companion.md` — markdown template for output
-- `templates/picture-book-pdf.py` — working ReportLab starter for the
-  PDF bundling extension; copy, swap in your entries + images, run.
-- `templates/audio-mix.py` — working starter for Step 7: TTS prep + music
-  bed generation + per-entry mix + complete-story concat. Copy, swap in
-  your entries, run.
+| File | Purpose |
+|------|---------|
+| `references/suno-style-patterns.md` | Extended mood-to-style cheat sheet with 15+ tested patterns |
+| `references/chinese-pdf-pitfalls.md` | ReportLab + Chinese fonts recipe; font glyph coverage table, CJK wrap helper, landscape A4 layout, page number / decorative band pitfall. Read this BEFORE doing PDF bundling. |
+| `references/audio-production.md` | Edge TTS Chinese voice trigger + ffmpeg procedural music synthesis + TTS/music mixing recipe. Read this BEFORE doing the audio narration extension (Step 7) or Mode 2. |
+| `references/edge-tts-voices.md` | Voice catalog by language + tone with notes (folded in from `audio-storybook-production`) |
+| `references/mixing-parameters.md` | ffmpeg TTS+bed filter chain with tuning notes (folded in from `audio-storybook-production`) |
+| `references/case-study-draw-storybook.md` | Worked example from `D:\draw` — the session that originally produced the audio-storybook-production skill (folded in from `audio-storybook-production`) |
+
+## Templates & Scripts
+
+| File | Purpose | Mode |
+|------|---------|------|
+| `templates/journal-companion.md` | Markdown template for the polished output | Mode 1 |
+| `templates/picture-book-pdf.py` | Working ReportLab starter for the PDF bundling extension; copy, swap in your entries + images, run | Mode 1 (Step 6) |
+| `templates/audio-mix.py` | Working starter for Step 7: TTS prep + music bed generation + per-entry mix + complete-story concat. All-in-one for Mode 1's audio extension | Mode 1 (Step 7) |
+| `templates/flipbook-viewer.html` | Self-contained HTML viewer with manifest inlined; mobile-portrait + landscape responsive | **Mode 2 (Step 7)** |
+| `templates/serve.py` | Local HTTP server with LAN IP detection and `Cache-Control: no-store`; for phone access over WiFi | **Mode 2 (Step 9)** |
+| `scripts/regen_tts.py` | Edge-tts batch generation, voice configurable | **Mode 2 (Step 2)** |
+| `scripts/verify_tts.py` | Detect English-fallback TTS via duration heuristic (the single most important step) | **Mode 2 (Step 3)** |
+| `scripts/generate_music.py` | ffmpeg-synthesized mood beds (5 presets) | **Mode 2 (Step 4)** |
+| `scripts/mix.py` | TTS + bed mixer (the canonical version with manifest.json + tunable bed_volume_db) | **Mode 2 (Step 5)** |
+| `scripts/concat_story.py` | Concatenate mixed mp3s with silence gaps for "complete story" mode | **Mode 2 (Step 6)** |

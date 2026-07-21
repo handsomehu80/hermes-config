@@ -35,7 +35,7 @@ EXCLUDE_DIRS = {
 
 # Files to skip entirely (exact match)
 EXCLUDE_FILES = {
-    '.env', 'auth.lock', 'gateway.lock', 'gateway.pid',
+    '.env', 'auth.json', 'auth.lock', 'gateway.lock', 'gateway.pid',
     'state.db', 'state.db-shm', 'state.db-wal',
     'models_dev_cache.json', 'gateway_state.json', 'processes.json',
     '.hermes_history',  # chat history may contain PAT fragments the boss pasted

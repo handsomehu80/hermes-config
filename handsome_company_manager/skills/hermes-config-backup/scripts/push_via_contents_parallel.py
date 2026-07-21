@@ -99,39 +99,46 @@ def push_one(rel: str, local: Path, profile_name: str, repo: str,
              fail_log: str | None = None) -> tuple[str, str]:
     """PUT one file via Contents API. Returns (rel, 'ok' | error_msg)."""
     api_path = f"{profile_name}/{rel.replace(chr(92), '/')}"
-    try:
-        content = local.read_bytes()
-    except Exception as e:
-        err = f"read: {e}"
-        if fail_log:
-            _log(fail_log, rel, err)
-        return rel, err
-    b64 = base64.b64encode(content).decode("ascii")
-    body = {
-        "message": f"backup: {api_path} (cron, {date})",
-        "content": b64,
-        "branch": branch,
-    }
-    # Modified files: fetch current SHA first (required by Contents API for updates)
-    try:
-        meta = req("GET", f"/repos/{repo}/contents/{api_path}?ref={branch}", token)
-        body["sha"] = meta["sha"]
-    except RuntimeError as e:
-        if "404" in str(e):
-            pass  # new file
-        else:
-            err = f"sha-check: {str(e)[:200]}"
+    for attempt in range(5):
+        # Refresh both the local bytes and remote blob SHA on every attempt.
+        # A retry using the first GET's SHA will keep failing for files that
+        # race another Contents API PUT (cron/jobs.json is a common example).
+        try:
+            content = local.read_bytes()
+        except Exception as e:
+            err = f"read: {e}"
             if fail_log:
                 _log(fail_log, rel, err)
             return rel, err
-    try:
-        req("PUT", f"/repos/{repo}/contents/{api_path}", token, body)
-        return rel, "ok"
-    except RuntimeError as e:
-        err = str(e)[:300]
-        if fail_log:
-            _log(fail_log, rel, err)
-        return rel, err
+        body = {
+            "message": f"backup: {api_path} (cron, {date})",
+            "content": base64.b64encode(content).decode("ascii"),
+            "branch": branch,
+        }
+        try:
+            meta = req("GET", f"/repos/{repo}/contents/{api_path}?ref={branch}", token)
+            body["sha"] = meta["sha"]
+        except RuntimeError as e:
+            if "404" not in str(e):
+                err = f"sha-check: {str(e)[:200]}"
+                if fail_log:
+                    _log(fail_log, rel, err)
+                return rel, err
+        try:
+            req("PUT", f"/repos/{repo}/contents/{api_path}", token, body)
+            return rel, "ok"
+        except RuntimeError as e:
+            err = str(e)[:300]
+            if "409" not in err or attempt == 4:
+                if fail_log:
+                    _log(fail_log, rel, err)
+                return rel, err
+            time.sleep(1 * (2 ** attempt))
+
+    err = "retry-exhausted"
+    if fail_log:
+        _log(fail_log, rel, err)
+    return rel, err
 
 
 def _log(fail_log: str, rel: str, err: str) -> None:
