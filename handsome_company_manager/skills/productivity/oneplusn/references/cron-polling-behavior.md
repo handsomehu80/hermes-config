@@ -99,6 +99,10 @@ If `[SILENT]` keeps firing for days on the same smoke-test Issue, **that is corr
 
 **Re-confirmed (2026-07-19, 10 days idle):** Same Issue #2, same `updatedAt=2026-07-09T12:22:34Z`, still `status:in-progress` with `priority:P3` and 1 comment (the persona's own welcome, signed `— 项目牧羊人 · Handsome-Manager`). Correctly fired `[SILENT]`. Also exercised the §6 PAT-scope refinement on this tick: `gh search` returned 10 candidates (1 in `handsome-s-company/agent_workflow` + 9 in `handsome-oneplusn-company/agent_workflow`), but the persona token can only reach the home org — see the `/user/repos` false-negative note in §6 for the corrected filter.
 
+**Re-confirmed (2026-07-22, Issue #2 no longer in repo — pivot to live state):** The historical PM-assigned smoke-test Issue #2 from 2026-07-09 has been cleaned up (likely by `oneplusn-eval` reset or a repo housekeeping pass between 2026-07-19 and today); `gh issue view 2 --repo handsome-s-company/agent_workflow` now returns `GraphQL: Could not resolve to an issue or pull request with the number of 2`, and `gh issue list --state all` shows only #1, #3–#20 with #2 missing. The 3 currently-open issues in this repo are #8 (assignee = Handsome-Review), #19 (assignee = handsome-hudeveloper), #20 (assignee = handsome-hudeveloper) — **none assigned to the PM persona**. Both `gh issue list --repo handsome-s-company/agent_workflow --assignee Handsome-Manager --state open` and `gh search issues --assignee Handsome-Manager --state open` return `[]`. Correctly fired `[SILENT]`. **The protocol still holds when no dedicated smoke-test issue exists** — persona-filtered enumeration is authoritative, and zero matches → `[SILENT]`. If you ever need to re-establish a PM smoke-test issue, dispatch one via `gh issue create --title "[Smoke Test] PM poll verification" --assignee Handsome-Manager --label "bus-test,status:in-progress"` and then verify a `[SILENT]` on the next tick.
+
+- **`gh search issues --state all` is rejected** (learned 2026-07-22, PM poll tick). The search endpoint only accepts `open` or `closed`, returning `invalid argument "all" for "--state" flag: valid values are {open|closed}` for `--state all`. Only `gh issue list` (and `gh pr list`) accept `--state all`. If you want both open and closed in one call, run `gh issue list --state all` instead — or just rely on the default `open` since the cron prompt explicitly says "扫描 ... open issue".
+
 ---
 
 ## 6. Pitfalls
@@ -123,6 +127,8 @@ If `[SILENT]` keeps firing for days on the same smoke-test Issue, **that is corr
   Either pattern is fine; pick one and stick with it. The `-X GET` form keeps the `-f` flags visible (good for jq downstream), the inline-query form is shorter. **Never** omit both: just calling `gh api repos/X/Y/issues` with no method and no flags will also default to POST.
 - **`gh issue list --json commentsCount` is rejected on newer `gh` CLI** (learned 2026-07-16, PM poll tick). Newer `gh` versions renamed the field to `comments` and now reject the old name with `Unknown JSON field: "commentsCount"` plus a full `Available fields:` dump (which itself contains `comments`, not `commentsCount`). The doc's examples still use `commentsCount`; if you copy them verbatim and hit `gh >= 2.50` or so, you'll see the error. **Fix:** swap `commentsCount` → `comments` in your `--json` flag list. `gh search issues --json commentsCount` from the search endpoint still works (separate code path) — only the `issue list` / `issue view` JSON fields were renamed. Spot-check your first run.
 - **Don't reload the persona token in a tight loop.** Reading `.env` once per poll is fine; re-parsing it per API call is wasted I/O and another chance to hit the redactor. Cache the token (and the verified login) at the start of the poll, re-use for the whole run, don't print it. The `scripts/verify_github_identity.sh` helper already does this once at Gateway startup - the polling LLM should call that or read the cached value, not re-derive.
+
+- **`.env` token values can carry hidden trailing whitespace** (learned 2026-07-22, PM cron poll tick on Issue #2). The §7a Python recipe originally did `line.rstrip('\n')` + `tok = line[len(key) + 1:]`, which silently leaves a trailing `\r` (CRLF-encoded files), space (post-`write_file` round-trip), or `\n` (some editors append a newline inside the value itself) attached to the token. Symptom: urllib3 raises `ValueError: Invalid header value b'token github...Kdk3\n'` and the persona-comment recipe is dead. **Fix:** `tok = line[len(key) + 1:].strip()` (strip ALL leading/trailing whitespace from the value, not just `\n` from the line). Belt-and-suspenders: `line = line.rstrip('\n').rstrip('\r')` first to keep the line-level check sane, then `.strip()` on the value. The curl-equivalent `python -c` one-liner in §7a needs the same `.strip()` after `[len(k)+1:]`. Don't trust `rstrip('\n')` alone — it's only correct when the file is LF-encoded AND has no trailing space AND the value has no embedded newlines.
 
 - **Persona fine-grained PAT may be scoped to a DIFFERENT org than what the boss's `gh` CLI shows** (learned 2026-07-18, PM cron poll tick). The boss's `gh` CLI is a wide-scope OAuth token that can **read** issues across every org the boss belongs to — but the persona's fine-grained PAT has explicit `repository selection`, often only the original org (e.g. `handsome-s-company/agent_workflow`), not the active work org (e.g. `handsome-oneplusn-company/agent_workflow`). Symptom: `gh search issues --assignee Handsome-Manager` returns 9 candidate issues, all from `handsome-oneplusn-company`, but `POST /repos/handsome-oneplusn-company/agent_workflow/issues/N/comments` returns `404 Not Found` for every one (verified on the 2026-07-18 tick — burned 4 calls before realizing the org mismatch). `gh issue list` against the persona's reachable org (`handsome-s-company/agent_workflow`) correctly returned only 1 PM-assigned issue (the smoke test). The `gh auth status` line (`Logged in to github.com account handsomehu80`) does NOT tell you the persona's PAT scope — `gh auth` reflects the CLI account, not the persona. Verification must come from the persona token itself. Fix at enumeration time: prefer `gh issue list --repo <persona-reachable-org>` over `gh search issues --assignee <persona>`, because the search endpoint queries the CLI account's wider index. If you do hit a 404 on a write op, do NOT retry with a different verb — drop the issue from this poll's work list and move on. This also explains why the same persona can read its own assigned issues via `gh search` (boss's wider scope) but cannot comment on them (persona's narrow scope).
 
@@ -208,9 +214,9 @@ env_path = r'C:\Users\Administrator\AppData\Local\hermes\profiles\handsome_compa
 key = "GITHUB" + "_" + "TOKEN"
 tok = None
 for line in open(env_path, encoding='utf-8'):
-    line = line.rstrip('\n')
+    line = line.rstrip('\n').rstrip('\r')  # handle CRLF as well as LF
     if line.startswith(key + "="):
-        tok = line[len(key) + 1:]
+        tok = line[len(key) + 1:].strip()  # strip ALL trailing whitespace from value — see §6 pitfall
         break
 if not tok:
     sys.exit("GITHUB_TOKEN missing from .env")
@@ -235,7 +241,7 @@ The print line `author.login=Handsome-Manager` is your **post-publish attestatio
 
 For curl-only workflows (no Python), the equivalent is:
 ```bash
-TOK=$(python -c "import os; k='GITHUB'+'_'+'TOKEN'; print([l[len(k)+1:] for l in open(r'C:\Users\Administrator\AppData\Local\hermes\profiles\handsome_company_manager\.env', encoding='utf-8') if l.startswith(k+'=')][0])")
+TOK=$(python -c "import os; k='GITHUB'+'_'+'TOKEN'; print([l[len(k)+1:].strip() for l in open(r'C:\Users\Administrator\AppData\Local\hermes\profiles\handsome_company_manager\.env', encoding='utf-8') if l.startswith(k+'=')][0])")
 curl -sS -X POST "https://api.github.com/repos/handsome-s-company/agent_workflow/issues/2/comments" \
   -H "Authorization: token $TOK" \
   -H "Accept: application/vnd.github+json" \

@@ -397,7 +397,22 @@ filtered_modified = [p for p in modified if p not in submodule_paths]
 
 Or run the pre-detection as part of the push script: for each path in the diff, `GET /repos/<owner>/<repo>/contents/<api_path>?ref=main` — if the response is `type: "submodule"` (a few GitHub API responses include this), skip. Note: Contents API `GET` for a submodule path returns the submodule's metadata, NOT a 404 — so a successful GET is not enough to know it's writable.
 
-### `hermes cron list` `last_status` reflects the LLM agent, not the subprocess
+### Submodule-aware verification for normal git-clone backups (NEW 2026-07-21)
+
+The submodule pitfall also applies to the normal clone → sync → `git add` path, not only the Contents API. A nested Git submodule is recorded in the superproject as a `160000` entry. A profile sync walker can copy source files into the clone's submodule checkout, but `git add <profile>/` will not add those nested files; the commit retains only the submodule pointer. This makes the sync script's "files copied" count look complete while the pushed backup contains fewer regular blobs.
+
+Before staging, detect submodules in the profile:
+
+```bash
+git -C "$repo" ls-tree -r HEAD --full-tree | awk '$1 == "160000" {print $4}'
+git -C "$repo" ls-files --stage | awk '$1 ~ /^160000/ {print $4}'
+```
+
+For every reported path, strip the profile prefix and exclude that subtree from the ordinary file/diff count. Do not silently claim the nested source files were backed up by the superproject. If the source has changed files under the subtree, either back up and push the submodule's own repository separately, or report that the existing pointer was retained; never rely on copied files inside the temporary submodule checkout. After the push, verify both regular files and `type: "commit"` tree entries through the GitHub API and report them separately.
+
+See `references/submodule-aware-sync.md` for the re-runnable verification recipe and reporting language.
+
+
 
 `hermes cron list` reports the LLM agent's final turn status. If the agent uses a background `terminal(background=true)` process (e.g. `push_contents.py` for Contents API push), that subprocess **keeps running after the LLM hits `max_turns` or `tool call limit`** and finishes on its own. Concretely (2026-07-13 PM backup cron):
 

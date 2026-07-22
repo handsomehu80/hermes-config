@@ -9,31 +9,41 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-20** — no-op archive; no entries in MEMORY.md
+> Latest run: **2026-07-21** — no-op archive; no entries in MEMORY.md
 > carried an internal date older than the 30-day cutoff
-> (2026-06-20). The dated active entries are
-> `1+N 数字员工集成(2026-07-08)` (12d old) and
-> `Credential state (2026-07-20)` (updated today); both remain within the
-> 30-day window. Undated environment-state facts remain in place per
-> the "no internal date → don't archive on mtime" rule. USER.md was
-> unchanged.
+> (2026-06-21). The dated active entries are
+> `1+N 数字员工集成(2026-07-08)` (13d old) and
+> `Credential state (2026-07-20)` (1d old); both remain within the
+> 30-day window. Undated environment-state facts (Host, Hermes
+> v0.15.1, Agent Team summary, PM 铁律+陷阱, PM cron) remain in place
+> per the "no internal date → don't archive on mtime" rule. USER.md
+> was unchanged.
 > Hindsight is enabled (`memory.provider: hindsight`), so `reflect()`
-> was attempted once with provider `minimax` / model `MiniMax-M3` and
-> the requested topic/recency/actionability consolidation query. The
-> embedded daemon timed out after 180 seconds; runner exit code = 1.
-> Current-run signature: `PostgreSQLBackend is not initialized. Call
-> initialize() first.` during daemon verification/startup. The retained
-> Hindsight log also contains the established HF cross-encoder failure
-> (`[WinError 10054]` / closed HTTP client), so the blocker remains
-> environmental. No mental model was created or updated. `HF_TOKEN` is
-> present but commented out in `.env`; markdown memory remains the
-> authoritative store and no data was lost.
+> was attempted once via `hindsight_reflect.py handsome_company_manager
+> --query 'Consolidate durable knowledge: deduplicate facts older than
+> 30 days, group by topic (host/credentials/team/PM-ops/Hindsight-state),
+> flag superseded entries, and prioritize actionability for the boss.'`.
+> The embedded daemon timed out after 180 seconds; runner exit code = 1;
+> duration = 196.1s. Time-scoped signature (lines at/after this run's
+> start at 2026-07-21 21:01:53): exactly **1 warning** in the log —
+> `21:02:28,468 - WARNING - hindsight_api.engine.llm_trace - LLM trace
+> write failed for scope=verification: PostgreSQLBackend is not
+> initialized. Call initialize() first.` The retained historical
+> signature in the full log still contains the HF cross-encoder
+> cascade (`[WinError 10054]` / `Cannot send a request, as the client
+> has been closed` during `cross_encoder.initialize()`); this run
+> never got far enough to add new HF HEAD-retry lines. The blocker
+> remains environmental. No mental model was created or updated.
+> `HF_TOKEN` remains present-but-commented-out in `.env`; markdown
+> memory is the authoritative store and no data was lost.
 > Pre-flight found no `memories/*.lock`. After the failed reflect,
-> the fresh 0-byte Hindsight daemon lock was removed only after port
-> 9807 was confirmed not listening. `gateway.log` is stale (~66h), but
-> `agent.log` is current from this cron run, proving the agent/gateway
-> path is alive; the stale gateway log is a logging artifact, not the
-> cause of the Hindsight failure.
+> the fresh 0-byte `~/.hindsight/profiles/handsome_company_manager.lock`
+> was removed only after port 9807 was confirmed not listening (errno
+> 10035 = WSAEWOULDBLOCK on the connect probe). `gateway.log` is stale
+> (~18h), but `agent.log` is fresh (touched this very cron run) and
+> `errors.log` is current (56m) — per the §3 tri-state rule, the
+> gateway is alive and the gateway-log staleness is a logging
+> artifact, not a gateway-down condition.
 
 ---
 
@@ -139,4 +149,10 @@ trusting this trick.
   - The retained Hindsight log still contains the established cross-encoder/Hugging Face failures (`[WinError 10054]` and `Cannot send a request, as the client has been closed`); `HF_TOKEN` is present but commented out. The failure remains environmental, and markdown memory remains authoritative.
   - The failed daemon left a fresh 0-byte `handsome_company_manager.lock`; port 9807 was confirmed not listening, then the lock was removed. No memory data was lost.
   - Boss action still open (choose one): uncomment `HF_TOKEN` and set a real value; switch Hindsight to `local_external`; or use cloud mode. The previous actual Hindsight attempt was 2026-07-19 21:03 (log mtime); this run refreshed the log at 2026-07-20 21:02.
-- Next scheduled cleanup: per the cron job cadence. Boss action for unlocking `reflect()`: choose one of the 2026-07-20 housekeeping options (`HF_TOKEN` with a real value, `local_external`, or cloud mode).
+- 2026-07-21 — no-op archive (cutoff 2026-06-21). Dated active entries remain 2026-07-08 (13d) and 2026-07-20 (1d); no entries exceed the 30-day window. Undated current-state facts (Host / Hermes v0.15.1 / Agent Team / PM 铁律+陷阱 / PM cron) stay active. USER.md unchanged.
+  - Pre-flight: no stale `memories/*.lock`; `gateway.log` is ~18h stale, but `agent.log` is fresh (touched this run, 0m) and `errors.log` is current (56m). Per the §3 tri-state rule, the agent/gateway path is alive; the stale gateway log is a logging artifact, not a gateway-down signal.
+  - Hindsight is enabled and `hindsight_reflect.py` was run with a topic/dedup/group-by/actionability consolidation query. The embedded daemon timed out after 180s; exit code 1; duration 196.1s.
+  - Time-scoped current-run signature: exactly **1 log line** written at/after this run's start (2026-07-21 21:02:28) — `LLM trace write failed for scope=verification: PostgreSQLBackend is not initialized. Call initialize() first.` The retained historical signature in the full log still includes the HF cross-encoder cascade (`[WinError 10054]` / `Cannot send a request, as the client has been closed`); this run never got far enough to retry the HF HEAD requests, so it surfaces only the downstream pg0 teardown warning. The blocker remains environmental.
+  - The failed daemon left a fresh 0-byte `~/.hindsight/profiles/handsome_company_manager.lock`; port 9807 was confirmed not listening (errno 10035 = WSAEWOULDBLOCK on the connect probe), then the lock was removed safely. No memory data was lost.
+  - Boss action STILL open (9th consecutive same-signature day; same trio as 7-13..7-20): choose one of (a) uncomment `HF_TOKEN` and set a real value, (b) switch Hindsight to `local_external`, or (c) use cloud mode. The previous actual Hindsight attempt was 2026-07-20 21:02 (log mtime); this run refreshed the log at 2026-07-21 21:02.
+- Next scheduled cleanup: per the cron job cadence. Boss action for unlocking `reflect()`: choose one of the 2026-07-21 housekeeping options (`HF_TOKEN` with a real value, `local_external`, or cloud mode).

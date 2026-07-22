@@ -75,7 +75,7 @@ print(body[:5000])  # first 5KB is usually the 1-page summary + progress matrix
 | `"error"` | Cron fired but LLM/script failed | Inspect last `.md` output for traceback |
 | `null` (None) | Cron has never fired (just registered, or ticker hasn't ticked yet) | Wait one tick; if still None after 24h, the cron registration is broken |
 
-**Zombie cron pattern:** if a profile has TWO crons with the same `name` differing only in case (e.g. `oneplusn-dev-task-polling` + `oneplusn-DEV-task-polling`), the lowercase variant usually has `ok` (working) and the uppercase has `error` (path mismatch / script not found). Surface this in the daily report's risk table — it bloats the cron list and confuses the dashboard.
+**Shadow-duplicate pattern:** if a profile has TWO crons with the same `name` differing only in case (for example `oneplusn-dev-task-polling` + `oneplusn-DEV-task-polling`), the lowercase prompt-driven variant is usually the real worker. The uppercase script-driven shadow may show `error`, or it may show `ok` while emitting only an empty-output marker. Therefore this `last_status` listing is only a first pass; confirm with output sizes or `scripts/check_pm_cron_liveness.py`.
 
 **Detection one-liner:**
 
@@ -162,7 +162,7 @@ The boss explicitly listed these as required:
 
 3. **`last_status=None` is NOT the same as `last_status=error`.** A `None` cron may just be "registered but hasn't ticked yet" (check output dir for any `.md` file; if 0 files exist, it never fired). An `error` cron fired and failed (check last `.md` for traceback). Don't conflate them in the risk table.
 
-4. **Zombie crons are real.** On the 2026-07-15 deployment, dev profile had 6 cron jobs (3 lowercase healthy + 3 uppercase `error`) and reviewer had the same pattern. The uppercase variants are leftovers from earlier deploy attempts with different script paths. Surface this in §3 as 🟡 risk: "6 zombie crons with last_status=error, need cleanup via `hermes cron delete`".
+4. **Shadow duplicate crons are real, and `last_status=ok` does not clear them.** A profile may have 3 lowercase real LLM jobs plus 3 uppercase `script`/`no_agent` shadows. Depending on the wrapper, an uppercase shadow may show `error` with `script failed` markers **or `ok` with `silent (empty output)` markers**. Surface this in §3 as 🟡 noise and classify from case-normalized duplicate names + `script`/`no_agent` + output size, not status alone. Use `scripts/check_pm_cron_liveness.py`; remove uppercase IDs after verification.
 
 5. **The cron report payload is huge.** Each `cron/output/<job_id>/*.md` file includes the entire skill prompt (47-81KB) followed by `## Response` then the actual report. Don't read the whole file — find the `## Response` marker or `rfind('# ')` to skip to the body. Reading 80KB of prompt per yesterday-report costs you context budget fast.
 
@@ -337,6 +337,32 @@ The boss explicitly listed these as required:
     ```
 
     This makes the escalation explicit in the cross-day trend (§5) and gives the boss a clear "you have 24h to respond or PM takes over" deadline. Without this row, the report reads as "same status as yesterday" and the boss has no signal that yesterday's silence made today worse.
+
+27. **Open count drops while closed total is unchanged = deletion/removal, not closure** (learned 2026-07-22). A missing Issue can make the snapshot look healthier without producing a `closed_at` event. Compare the **set of Issue numbers** against yesterday, not only aggregate counts. For each missing number, run `gh issue view <N> --repo <org>/<repo>`:
+    - resolves as CLOSED → count as closure only if `closedAt` is inside the window;
+    - cannot resolve, while yesterday's report proved it existed → report **deleted/removed**;
+    - optionally query the organization audit log when permission allows, but if that query is unavailable, leave actor/time as **unknown**.
+    Never attribute the deletion to boss/PM/dev/reviewer without evidence, and do not increment any person's Issue-action count. In §5 write the exact shape: `Open −1 / Closed +0 (#N disappeared, not closed)`.
+
+28. **PR author is not PR assignee.** The daily template has an `assignee` column, but `gh pr list --json author` only tells who opened the PR. Query both explicitly:
+    ```bash
+    gh pr list --repo <org>/<repo> --state all --limit 100 \
+      --json number,author,assignees,mergeable,mergeStateStatus,updatedAt
+    ```
+    If `assignees` is empty, render `—` in the assignee column and, if useful, put `author <login>` in the “关键” column. Never copy `author.login` into `assignee`.
+
+29. **Current `jobs.json` runtime fields use `_at` suffixes.** Modern Hermes cron records expose `last_run_at` / `next_run_at`; older snippets that read `last_run` / `next_run` may print `null` even while the job is healthy. Use a compatibility accessor:
+    ```python
+    last_run = job.get('last_run_at') or job.get('last_run')
+    next_run = job.get('next_run_at') or job.get('next_run')
+    ```
+    Pair this with output-dir mtime; `last_status` alone still cannot distinguish a real LLM worker from an empty-output shadow duplicate.
+
+30. **Do not print raw Git remotes during report collection.** Private remotes may embed `https://x-access-token:<PAT>@github.com/...`; `git remote -v` can leak credentials into cron output and the delivered report. Prefer `gh repo view <org>/<repo> --json nameWithOwner,url,defaultBranchRef,viewerPermission`. If a remote URL must be inspected, redact the URL userinfo before logging it.
+
+31. **Re-query volatile state immediately before delivery.** Daily collection can take several minutes while employee crons continue firing. Just before final response, run a compact live check for: open Issue count/numbers, every open PR's `mergeable` + `mergeStateStatus`, and the 24h comment count. If any value changed, regenerate the affected rows. This is especially important before an A/B/C merge decision because `CLEAN ↔ DIRTY` can flip between initial collection and delivery.
+
+32. **Validate the report structurally and count characters, not UTF-8 bytes.** Chinese text often uses three bytes per character, so file size is not the 2500-字 budget. Before delivery verify: H1 date header, sections `## 0` through `## 8`, current CST time, four top-line activity counts, per-person rows, R/Y/G distribution, tomorrow 09:00 CST trigger, and the exact closing sentence. A practical prose-budget check strips Markdown table syntax and whitespace, then requires the remaining character count `<= 2500`; if close to the limit, trim rather than argue about counting conventions.
 
 ---
 

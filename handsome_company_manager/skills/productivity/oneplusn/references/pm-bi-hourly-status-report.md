@@ -1,7 +1,7 @@
 ---
 name: pm-bi-hourly-status-report
 description: "PM's recurring every-2-hours status report playbook — data collection, 3-state classification, report template, pitfalls."
-version: 1.4.0
+version: 1.5.0
 parent_skill: oneplusn
 metadata:
   hermes:
@@ -412,16 +412,37 @@ Per-employee activity in the 2h window = sum of:
 
     The cron template's `| head -200` guardrail is a legacy from `gh issue list --json number,title,state,...` (no comments). When you add `comments` to the field list, `head` becomes a no-op. Always pair `head` with `--jq` projection that emits one row per issue.
 
-### 2.9 PR merge-readiness diagnostic (added 2026-07-18)
+### 2.9 PR merge-readiness diagnostic (added 2026-07-18, refined 2026-07-22)
 
-When the §2.7 boss-merge-PR deadlock is suspected, two questions must be answered before drafting a merge one-liner: **(a) is each PR actually mergeable?** and **(b) which PRs are clean vs need rebase?** `gh pr view --json mergeable` is **not reliable** — it returns `"mergeable":"UNKNOWN"` when GitHub hasn't yet computed the state (no Actions configured, slow rate-limit calc, or the merge commit hasn't been simulated yet).
+When the §2.7 boss-merge-PR deadlock is suspected, two questions must be answered before drafting a merge one-liner: **(a) is each PR actually mergeable?** and **(b) which PRs are clean vs need rebase?**
 
-**Use `git merge-tree` for a deterministic, side-effect-free conflict check:**
+**The fastest one-shot check: query BOTH `mergeable` AND `mergeStateStatus` in a single `gh pr view` call.** `mergeStateStatus` is the actionable field — it tells you WHY (DIRTY = needs rebase, BEHIND = needs fetch+rebase, BLOCKED = required check failed, CLEAN = ready, UNKNOWN = GitHub hasn't computed). `mergeable` alone is boolean (true/false/UNKNOWN) and loses the WHY.
+
+```bash
+# Canonical one-shot pre-flight for all stuck PRs at once
+for n in 13 14 15; do
+  gh pr view $n --repo <org>/agent_workflow \
+    --json number,state,mergeable,mergeStateStatus,headRefName,baseRefName,additions,createdAt,updatedAt \
+    --jq '"\(.number) | state=\(.state) mergeable=\(.mergeable) mergeStateStatus=\(.mergeStateStatus) +\(.additions) \(.headRefName) -> \(.baseRefName)"'
+done
+```
+
+**Field interpretation table:**
+
+| `mergeable` | `mergeStateStatus` | meaning | action |
+|---|---|---|---|
+| `MERGEABLE` | `CLEAN` | clean merge candidate, GitHub agrees | `gh pr merge <N> --merge` direct |
+| `MERGEABLE` | `BEHIND` | main moved ahead; fast-forward / rebase will fix | `git fetch && git rebase origin/main && git push --force-with-lease` then merge |
+| `CONFLICTING` | `DIRTY` | real conflict, needs rebase resolution | rebase + resolve + push + merge |
+| `CONFLICTING` | `BLOCKED` | required check failed (rare on this repo — no CI configured) | check `gh pr view <N>` body for required checks |
+| `UNKNOWN` | `UNKNOWN` | GitHub hasn't computed yet (no Actions / slow rate-limit) | wait 30s and re-query, or fall back to `git merge-tree` (§2.9 fallback) |
+
+**Fallback when `git fetch origin` succeeds — use `git merge-tree` for a deterministic, side-effect-free conflict check:**
 
 ```bash
 # Verify base ref exists locally first
 cd <team-work-dir>
-git fetch origin --quiet
+git fetch origin --quiet   # may time out on this host — see "Fallback when git fetch fails" below
 
 # For each OPEN PR, compute merge-base against origin/main and pipe to merge-tree
 PR_BRANCH="origin/<pr-branch>"   # e.g. origin/feat/issue-6-budget-middleware
@@ -429,12 +450,26 @@ BASE=$(git merge-base origin/main "$PR_BRANCH")
 git merge-tree "$BASE" origin/main "$PR_BRANCH" | head -20
 ```
 
-**Output interpretation:**
-- Output contains `<<<<<<<` markers, `changed in both`, or `CONFLICT (...)` → **CONFLICTING** — needs rebase before merge
-- Output contains only `added in remote` / `added in local` lines with no conflict markers → **clean merge candidate**
-- Output is empty or shows only added-side hunks → trivially clean
+`merge-tree` output interpretation:
+- Contains `<<<<<<<` markers, `changed in both`, or `CONFLICT (...)` → **CONFLICTING** — needs rebase before merge
+- Contains only `added in remote` / `added in local` lines with no conflict markers → **clean merge candidate**
+- Empty or shows only added-side hunks → trivially clean
 
-**Verified-working real case (2026-07-18 PM #51):**
+The merge-base + merge-tree invocation never touches the working tree — safe to run from any cron context, no risk of half-merged state. **But** when `git fetch origin` times out (Failed to connect to github.com:443 — seen on 2026-07-21 PM #81), `merge-tree` operates on stale local `origin/main` and produces a wrong verdict. **In that case, `gh pr view --json mergeable,mergeStateStatus` is the sole authority** — `gh` uses its own authenticated HTTPS path via `~/.config/gh/hosts.yml`, separate from git's fetch path. Don't fail the report when fetch is unreachable; note it in §5 and ship the `gh pr view` verdict.
+
+**Verified-working real case (2026-07-22 PM run, current session):**
+
+```text
+PR # 13 state=OPEN   mergeable=MERGEABLE mergeStateStatus=CLEAN       +  917 createdAt=2026-07-13
+PR # 14 state=OPEN   mergeable=CONFLICTING mergeStateStatus=DIRTY     +  435 createdAt=2026-07-13
+PR # 15 state=OPEN   mergeable=CONFLICTING mergeStateStatus=DIRTY     +  901 createdAt=2026-07-13
+```
+
+This is the canonical "1 clean + 2 dirty" pattern. The PM-direct-action one-liner (§2.10) must reflect this split:
+- **PR #13** → direct `gh pr merge 13 --merge`
+- **PR #14 + #15** → `git rebase origin/main && git push --force-with-lease` first, then merge
+
+**Earlier real case (2026-07-18 PM #51, replaced by 2026-07-22):**
 
 | PR | branch | mergeable (gh) | git merge-tree result | action |
 |---|---|---|---|---|
@@ -442,7 +477,9 @@ git merge-tree "$BASE" origin/main "$PR_BRANCH" | head -20
 | #14 | `feat/issue-6-budget-middleware` | UNKNOWN | **CONFLICTING** on `docs/budget-middleware.md` | rebase first |
 | #15 | `feat/issue-7-evaluator-harness` | UNKNOWN | clean (no markers) | merge directly |
 
-The merge-base + merge-tree invocation never touches the working tree — safe to run from any cron context, no risk of half-merged state. This is the **only reliable pre-flight check** for the PM-direct-action one-liner (§2.10).
+**Important caveat — state can flip between reports in EITHER direction** (added 2026-07-22, real case). PR #14 and #15 were `MERGEABLE` on the 2026-07-19 PM #52 report (per the §2.10 staleness check); they flipped to `CONFLICTING` by 2026-07-22 even though no new PR was merged to main in between (only config-backup commits). Suspected cause: GitHub periodically recomputes mergeable state when any push event touches main, and the daily cron-backup pushes are exactly such events. **The previous report's `mergeable` verdict is NOT safe to copy-paste into a new one-liner** — always re-query the same day, and the Δ vs previous one-liner table (§2.10) is the explicit cross-check. When `mergeStateStatus=DIRTY`, rebase first; when `CLEAN`, merge directly.
+
+This is the **only reliable pre-flight check** for the PM-direct-action one-liner (§2.10).
 
 ### 2.10 PM-direct-action one-liner template (added 2026-07-18)
 
@@ -580,3 +617,26 @@ Every 2h report must include the 5 numbers below in the 健康度 table. The bos
 - `references/pm-operations-playbook.md` — full worked examples of dispatch / audit / 拍板
 - `agent-task-polling/references/stale-verdict-deadlock.md` — full diagnostic + Iron Rule #8 candidate (referenced from §2.5)
 - `SKILL.md` §"Pitfall: Cron workdir drift is silent until it isn't" — when `git log` returns empty in the wrong workdir
+
+## 8. Pitfall: `execute_code` XML-tag parameter trap (added 2026-07-21, PM #87)
+
+When passing Python code as the `code` parameter to `execute_code`, **NEVER include literal `</code>`, `</invoke>`, or any other XML-like closing tag inside the code value**. The parser is NOT strict XML — it takes the raw string between the parameter tags and writes it verbatim to a temp `.py` file. If `</code>` appears inside your parameter string, the resulting Python file contains a stray `</code>` line and Python raises `SyntaxError: invalid syntax`.
+
+**Symptom (verbatim from the 2026-07-21 PM #87 run, 3 consecutive identical failures):**
+
+```
+File "C:\\Users\\Administrator\\AppData\\Local\\Temp\\hermes_sandbox_<hash>\\script.py", line NN
+    </code>
+    ^
+SyntaxError: invalid syntax
+```
+
+The error always points at line N where `</code>` appeared literally in your parameter string. Often line N is the last line of the file — Python has no problem with the actual code above; only the trailing `</code>` poisons it.
+
+**Fix when triggered:**
+
+1. End the code parameter with the LAST line of Python code. Do NOT add `</code>`, `</invoke>`, or any other closing tag after it.
+2. Verify your closing pattern is exactly `last_python_line</parameter>` — NOT `last_python_line</code></invoke></invoke>`.
+3. If you've already failed 2-3 times on the same call, stop trying `execute_code` and write the script to disk via `terminal()` instead: `python -c "open('/tmp/my_script.py','w',encoding='utf-8').write('...')" && python /tmp/my_script.py`. The disk path bypasses the parameter parser entirely.
+
+**Applies broadly:** every `execute_code` call in this Hermes environment, not just the PM cron. The 3-strikes loop is silent and wastes tool budget — embed the rule on first use, before sending the parameter.
