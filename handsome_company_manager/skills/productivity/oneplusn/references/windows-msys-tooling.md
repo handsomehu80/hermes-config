@@ -159,6 +159,54 @@ and a Python read in the same terminal() call. Either write straight to
 `C:/Users/.../AppData/Local/Temp/`, or use `pathlib` to discover the real
 path Python sees.
 
+## Pitfall 6 — Inline `$(...)` substitution breaks inside `terminal()`
+
+`terminal()` wraps the command in an `eval`-like layer. Inside that layer,
+inline command substitution like `$(cat file)` or `$(...) && next_cmd`
+can fail with:
+
+```
+/usr/bin/bash: eval: line N: syntax error near unexpected token `)'
+```
+
+even though the same command works fine in a normal bash session. MSYS
+bash inside the eval wrapper mis-parses the closing `)` when followed by
+additional operators (`&&`, `|`, `;`).
+
+**Symptom pattern (seen on 2026-07-23 PM task-polling run, while sourcing
+a token for `gh api user`):**
+
+```bash
+# Failed: parse error on the `)` after 'tok'
+export PM_TOKEN=*** "/tmp/token.tok") && export GH_TOKEN=*** && gh ...
+```
+
+**Fix:** do the env-var dance in `execute_code` with
+`subprocess.run(env=env)` — Python passes the env dict directly to the
+child process, no shell parsing, no MSYS interference:
+
+```python
+import os, subprocess
+from pathlib import Path
+token = Path("C:/Users/Administrator/AppData/Local/Temp/_pm_gh_token.tok").read_text().strip()
+env = os.environ.copy()
+env["GH_TOKEN"] = token
+env["GITHUB_TOKEN"] = token
+r = subprocess.run(
+    ["gh", "api", "user"], capture_output=True, text=True, env=env,
+    cwd="D:/onboarding/handsome-s-company"
+)
+```
+
+Use this pattern whenever you need to:
+- Inject a `.env`-extracted secret into a `gh` subprocess
+- Pass a variable between multiple `gh`/`python` invocations in one step
+- Set `GH_TOKEN` / `GITHUB_TOKEN` to a token you just read from a file
+
+**Rule of thumb:** keep `terminal()` calls to single-statement commands.
+If the command needs command substitution, env-var threading, or
+multi-step pipes, drive it from `execute_code` instead.
+
 ## Verification recipe after any `.env` ACL / content change
 
 ```bash

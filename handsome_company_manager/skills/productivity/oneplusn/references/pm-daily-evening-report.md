@@ -282,37 +282,31 @@ The boss explicitly listed these as required:
 
     **Trigger:** if any per-employee row in §4 carries the same assessment (摸鱼嫌疑 / 摸鱼升级) for **≥ 3 consecutive daily reports** AND the previous day's §7 decision points got 0 boss action, today's §7 must use this menu format. Frame as: **"若老板今晚 23:30 前无回应,PM 默认走 A 项代合 PR #14/#15;若 B 项, dev 09:00 cron 看到 'PM 已代开 PR' 后可继续 commit;若 C 项,PM 直接 reassign #19/#20 给 reviewer 自驱"**. Do NOT keep writing "请老板拍板" if the previous day's identical prompts got ignored — that's a passive escalation that doesn't move state.
 
-24. **"Cron fires but 0 GH-side translation" is a distinct failure mode** (learned 2026-07-18, dev/reviewer cron producing 50+ substantive .md files/day but 0 commits/comments/PRs). The daily report's §3 risk table currently distinguishes "cron not firing" vs "cron firing but errored" (lesson #4). It must also distinguish **"cron firing successfully + producing LLM output + 0 GitHub artifacts"**:
+24. **"Cron fires but 0 GH-side translation" needs response-aware classification** (refined 2026-07-24). The daily report must distinguish wrapper failure, live-but-silent protocol outcomes, stale-claim deadlock, and genuine reasoning thrash. **Full `.md` size is only a transport/liveness signal** because each real output repeats the giant skill prompt; a 60–100KB file can still have a final response of exactly `[SILENT]`.
 
-    | Cron state | GH-side state | Pattern | §3 verdict |
-    |---|---|---|---|
-    | No output dir / 0 .md files in 24h | n/a | Cron didn't fire | 🔴 broken registration |
-    | `.md` files mostly <1KB (markers) | 0 commits / 0 comments | Duplicate registration (Known Fix #13) | 🟡 noise |
-    | `.md` files 15-50KB (substantive) | 0 commits / 0 comments / 0 PRs | **LLM running but not translating to actions** | 🔴 cron-thrashing |
-    | `.md` files 15-50KB | some commits/PRs | Healthy | 🟢 |
+| Cron envelope | Final payload after last `## Response` | GH-side state | §3 verdict |
+|---|---|---|---|
+| No output dir / 0 files in 24h | n/a | n/a | 🔴 cron did not fire / broken registration |
+| File <1KB, usually `script` + `no_agent` | marker / empty | no artifacts | 🟡 uppercase duplicate-shadow noise |
+| File ≥5KB | semantic `[SILENT]` | no assigned open Issue | 🟢 healthy idle |
+| File ≥5KB | semantic `[SILENT]` | assigned Issue unchanged; last external signal is worker's own comment | 🔴 stale-claim / new-feedback deadlock — unblock the gate or add explicit external feedback |
+| File ≥5KB | **non-silent** reasoning repeatedly | 0 commits / comments / PRs / Issue actions | 🔴 cron-thrashing — LLM reasons but does not translate to action |
+| File ≥5KB | non-silent | matching GH artifact exists | 🟢 productive |
 
-    The third row is the trap: `jobs.json` shows `last=ok`, the LLM is consuming tokens, but the agent is in a reasoning loop without producing actions. **Detection recipe:**
+**Parsing rule:** split on the **last** `## Response` marker, not the first (the prompt may contain examples). Treat the outcome as semantic silent when the last non-empty line matches `\[SILENT\]?` case-insensitively. The optional closing bracket intentionally covers legacy/truncated outputs such as `[SILENT`; explanatory text followed by a final `[SILENT]` is also a silent protocol outcome. Never infer productivity from the full-file byte size.
 
-    ```python
-    # cron_thrashing.py — run during daily data collection
-    from pathlib import Path
-    from datetime import datetime, timedelta
-    cutoff = datetime.now() - timedelta(hours=24)
-    for profile in ['handsome_company_developer', 'handsome_company_reviewer']:
-        cron_out = Path(f'C:/Users/Administrator/AppData/Local/hermes/profiles/{profile}/cron/output')
-        if not cron_out.exists(): continue
-        sub_files = 0
-        for d in cron_out.iterdir():
-            if not d.is_dir(): continue
-            for f in d.glob('*.md'):
-                if datetime.fromtimestamp(f.stat().st_mtime) >= cutoff and f.stat().st_size > 1000:
-                    sub_files += 1
-        # Now compare to GH-side commit count for that profile (from git log --author)
-        # If sub_files > 30 in 24h but commits < 2: thrashing
-        print(f'{profile}: {sub_files} substantive cron outputs / last 24h')
-    ```
+**Recommended probe:** use the response-aware liveness script instead of hand-counting file sizes:
 
-    **In the 2026-07-18 run:** dev profile = 51 substantive / 0 manual commits, reviewer = 50 substantive / 0 manual commits. Both at 50+ daily cron fires with zero GH-side artifacts = **"cron-thrashing"** distinct from the Known Fix #13 marker pattern. **§3 verdict:** 🔴 "cron-thrashing, LLM reasoning loop without action translation". **§7 menu:** add option "PM 自接 #19/#20 代 dev 落地 1 个原子 commit 打破循环".
+```bash
+python scripts/check_pm_cron_liveness.py \
+  --profile handsome_company_developer \
+  --window-hours 24 \
+  --task-polling-only --json
+```
+
+Read `counts.semantic_silent`, `counts.non_silent`, and `counts.response_unparsed`, then cross-check assigned Issues and GH artifacts. A high `real_llm` count with `semantic_silent == real_llm` is **not** cron-thrashing by itself.
+
+**Verified correction (2026-07-24):** the dev worker produced 48 large LLM envelopes, but many responses were exact `[SILENT]`, legacy `[SILENT`, or explanatory text ending in `[SILENT]`. The latest response explicitly said both assigned Issues were unchanged and the last commenter was the worker itself. With 0 GH artifacts, the correct classification was **stale-claim/new-feedback deadlock**, not “50 substantive reasoning runs.” This is why response parsing must precede the productivity verdict.
 
 25. **Open-PR age column in §2 surfaces "stuck after PASS" before it becomes a 7-day incident** (learned 2026-07-18, PR #14/#15 sat for 6 days after reviewer PASS judgment). When listing open PRs in §2, include the `updated_at` age as a column:
 
@@ -338,11 +332,14 @@ The boss explicitly listed these as required:
 
     This makes the escalation explicit in the cross-day trend (§5) and gives the boss a clear "you have 24h to respond or PM takes over" deadline. Without this row, the report reads as "same status as yesterday" and the boss has no signal that yesterday's silence made today worse.
 
-27. **Open count drops while closed total is unchanged = deletion/removal, not closure** (learned 2026-07-22). A missing Issue can make the snapshot look healthier without producing a `closed_at` event. Compare the **set of Issue numbers** against yesterday, not only aggregate counts. For each missing number, run `gh issue view <N> --repo <org>/<repo>`:
+27. **Open count drops while closed total is unchanged = deletion/removal, not closure** (learned 2026-07-22). A missing Issue can make the snapshot look healthier without producing a `closed_at` event. Compare the **set of Issue numbers** against yesterday, not only aggregate counts. For each missing number, run `gh issue view <N> --repo <org>/<repo> --json state,closed_at,title,number,labels`:
     - resolves as CLOSED → count as closure only if `closedAt` is inside the window;
-    - cannot resolve, while yesterday's report proved it existed → report **deleted/removed**;
+    - resolves as OPEN, while `gh issue list` did not return it → **stale-list artifact**, NOT deletion; the issue is still open and must appear in §2's snapshot with a footnote `(verified open via gh issue view; gh issue list did not return it this fire — likely filter/cache cutoff)`; §5 Δ row = 0 (counted identically both days)
+    - cannot resolve (HTTP 404), while yesterday's report proved it existed → report **deleted/removed**;
     - optionally query the organization audit log when permission allows, but if that query is unavailable, leave actor/time as **unknown**.
-    Never attribute the deletion to boss/PM/dev/reviewer without evidence, and do not increment any person's Issue-action count. In §5 write the exact shape: `Open −1 / Closed +0 (#N disappeared, not closed)`.
+    Never attribute the deletion to boss/PM/dev/reviewer without evidence, and do not increment any person's Issue-action count. In §5 write the exact shape: `Open −1 / Closed +0 (#N disappeared, not closed)` for true deletion, or `Open 0 / Closed 0 (#N stale-list, still open)` for the stale-list artifact.
+    
+    **REFINEMENT (learned 2026-07-23, on Issue #2 false-open carry-forward):** Do NOT propagate yesterday's "消失未关闭" / "still open but missing" caption into today's snapshot without a fresh `gh issue view <N>` query. Yesterday's caption is descriptive of yesterday's evidence, not authoritative for today's classification. Real case: Issue #2 was carried forward from the 2026-07-22 daily's "Open Issue 数 −1 (#2 消失了,非关闭)" into today's §2 + §5 as if still OPEN, but no fresh `gh issue view 2` was run to confirm current state. The right action sequence is: (a) note the missing-from-list number, (b) `gh issue view <N> --json state,closed_at,title` for current truth, (c) classify per the three bullets above, (d) only then write the §2 row and §5 Δ. Skipping step (b) produces a fabricated OPEN count that the boss cannot audit against.
 
 28. **PR author is not PR assignee.** The daily template has an `assignee` column, but `gh pr list --json author` only tells who opened the PR. Query both explicitly:
     ```bash

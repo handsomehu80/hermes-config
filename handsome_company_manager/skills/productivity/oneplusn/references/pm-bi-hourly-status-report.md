@@ -1,7 +1,7 @@
 ---
 name: pm-bi-hourly-status-report
-description: "PM's recurring every-2-hours status report playbook — data collection, 3-state classification, report template, pitfalls."
-version: 1.5.0
+description: "PM's recurring every-2-hours status report playbook — data collection, 4-state classification, report template, pitfalls."
+version: 1.7.0
 parent_skill: oneplusn
 metadata:
   hermes:
@@ -584,11 +584,87 @@ print(f'Since 2h cutoff: {len(recent)}')
     ```
     If 12h shows N≥1 and 2h shows N=0, the team is **healthy between sprints** — not 摸鱼. Report this as "expanded window shows last activity at `<YYYY-MM-DDTHH:MM:SSZ>`, Δt = Nh"; the §3 contribution table's 摸鱼信号 column should show "🟡 0 (extended window shows activity at <time>)". Reserve the 摸鱼 flag for the genuine case: 12h empty on a team with open assigned Issues (stale-verdict-deadlock from §2.5).
 
-22. **Never emit a literal "#N" or "#N+1" placeholder in the report title — always fill in the actual number (learned 2026-07-19, PM #63 run).** §5 #6 above says to count from cron install (read `<profile_home>/cron/jobs.json`, find first `.md` to anchor). The pitfall: in recent bi-hourly reports in `cron/output/d26c66fbbdd0/`, several reports wrote `#N` or `#N+1` *literally* as the title placeholder instead of the resolved integer. Example: report at 18:03 CST wrote `#61`; report at 20:03 CST wrote `#N+1` (a placeholder, not a number); the next reader can't tell whether the count is 62, or "N+1 where N is from the previous report", or "N+1 where N is the cron lifetime count". **Always resolve to an integer before publishing.** If unsure, walk the report dir by mtime, count `.md` files since the first one (anchor), and use that integer. The regex `#\s*(\d{1,3})(?:\s|\(|期|UTC|CST)` will pollute results with PR numbers (13/14/15) if applied to the report's own body — anchor on the title alone, or count `.md` files by mtime to be safe.
+22. **Never emit a literal "#N" or "#N+1" placeholder in the report title — always fill in the actual number (learned 2026-07-19, PM #63 run).** §5 #6 above says to count from cron install (read `<profile_home>/cron/jobs.json`, find first `.md` to anchor). The pitfall: in recent bi-hourly reports in `cron/output/d26c66fbbdd0/`, several reports wrote `#N` or `#N+1` *literally* as the title placeholder instead of the resolved integer. Example: report at 18:03 CST wrote `#61`; report at 20:03 CST wrote `#N+1` (a placeholder, not a number); the next reader can't tell whether the count is 62, or "N+1 where N is from the previous report", or "N+1 where N is the cron lifetime count". **Always resolve to an integer before publishing.**
+
+   **Canonical procedure (refined 2026-07-24 PM #117 run):**
+   1. Sort `<profile_home>/cron/output/<pm-job-id>/*.md` by mtime descending — newest first.
+   2. Read the **full content** of the most recent `.md` and apply `re.search(r'#\s*📊\s*PM\s+双小时状态报告\s*#\s*(\d+)', content)`. **Do NOT use `splitlines()[0]`** — line 0 is the cron wrapper's `# Cron Job: <friendly-name>` header (per §2.8), NOT the report title. The actual title lives in the `## Response` section ~500+ lines into the file (a 60-70KB bi-hourly output has ~630 lines total). Confirmed on 2026-07-24 PM #117: extracting from `splitlines()[0]` returned `None` for all 115 historical reports; the bug was invisible until someone ran the recipe end-to-end.
+   3. **Discard the literal value if it forms a non-monotonic sequence with mtime.** Recent runs have emitted `#100` → (skipped `#101-#107` as template) → `#108` → `#109` → `#105` (regressed) due to LLM confusion. Treat those as wrong and ignore them. Anchor on the highest N that increases monotonically with mtime.
+   4. Use `latest_correct_N + 1` as this report's number. **Don't** count total `.md` files since cron install — that gives the lifetime total (hundreds), not the next-in-sequence integer.
+
+   **Don't** use the regex on the report's own body (PR numbers like #13/#14/#15 will pollute the match). Anchor on the title only.
+
+   **Don't** emit `#N` or `#N+1` literally — always an integer.
 
 21. **The "[SILENT] = 摸鱼" false positive: cron-firing + LLM-silent ≠ idle (added 2026-07-18).** A common PM error: see "0 commits + 0 comments in 2h" → tag 摸鱼. But the [SILENT] cron output (see §2.5 Step C) shows the LLM is doing exactly what its skill says to do when there's no new feedback: return `[SILENT]`. The diagnostic chain is: (1) §2.5 Step A confirms cron firing (fresh .md in output dir); (2) §2.5 Step B confirms LLM executing (file > 50KB); (3) §2.5 Step C confirms LLM verdict (`[SILENT]`); (4) §2.5 Step D shows open assigned Issues, if any. Only after ALL four checks should you tag 摸鱼. In the 2026-07-18 PM run, both dev and reviewer were returning `[SILENT]` correctly under the skill — not 摸鱼, but "waiting for boss to merge PRs" (boss-merge-PR deadlock per §2.7). The §3 contribution-table row should show "0 commit / 0 评论" but with the §2.5 4-state label (e.g. "🟢 healthy idle" or "🔴 boss-merge-PR deadlock"), NOT "🔴 摸鱼". Reserve "🔴 摸鱼" for the case where Steps A-C confirm cron firing + LLM executing + LLM doing real work BUT no GH-side artifacts AND no boss-merge-PR deadlock — i.e. employee is genuinely idle despite having open work.
 
+23. **The "stale-claim + [SILENT] loop" — third failure mode, distinct from #18 and #21 (added 2026-07-23, PM bi-hourly run).** Observed in #19/#20 this cycle: dev cron firing every 30 min ✅, LLM executing 100KB+ responses ✅, LLM verdict `[SILENT]` ✅, AND the dev has open assigned Issues ✅. So §2.5 Step D fires, but the per-issue diagnostic is more subtle. The actual pattern:
+
+    - Dev's last visible artifact on the Issue is a 7-day-old ack comment (`👋 @handsome-hudeveloper 已接单 #19. ## 现状确认...`) + 1 first-tick commit on a feature branch.
+    - The branch exists locally and was pushed; the PR was NEVER opened.
+    - On every subsequent 30-min tick, dev's LLM scans "Issues assigned to me" → sees its own 7-day-old ack comment + 1 commit on the branch → concludes "I already started this, waiting for reviewer / PM / boss" → returns `[SILENT]`.
+    - Cron keeps firing, LLM keeps "executing", no GH-side artifact, no PR, no comment, no commit.
+    - To a naive observer this looks like "dev 摸鱼 168h+" — but it's structurally different from both "true idle" (#21 healthy idle) and "commit but no PR" (#18): here the LLM has self-rationalized inactivity based on stale local state.
+
+    **Diagnostic to distinguish from #18 and #21 (the 3-way test):**
+
+    | Check | True 摸鱼 (#21 reserve) | Commit-but-no-PR (#18) | Stale-claim loop (#23, this pitfall) |
+    |---|---|---|---|
+    | `git log --all --since=Nh` shows new commits by dev? | ❌ no | ✅ yes | ❌ no (only the 7-day-old commit) |
+    | `gh pr list` shows new PR opened in last Nh? | ❌ no | ❌ no (the symptom) | ❌ no |
+    | Issue's `updatedAt` is the only signal of activity? | ❌ no | ✅ yes (the 7-day-old ack + commits) | ✅ yes (the 7-day-old ack only) |
+    | Cron output dir shows `[SILENT]` for every recent tick? | ✅ yes | ❌ no (real work in some ticks) | ✅ yes (every tick) |
+    | Issue body or dev's last comment says "等 reviewer"? | varies | varies | ✅ **yes** — the dev's own 7-day-old ack comment often includes "等 reviewer" / "等 #N close" phrasing, which the LLM later reads and treats as a release condition |
+
+    **The fix is NOT to派单 again** (dev is already assigned) and NOT to escalate P0 (already done 9 days ago, no response). The fix is to **unblock the release condition the dev is waiting for** — usually a PR merge on a different Issue that gates dev's follow-up work. Real case this cycle: #19 body says "等 #7 close 后才能完整跑通" and #20 body says "等 #6 close 后启动". Both #6 and #7 are CLOSED but their PRs (#14, #15) are CONFLICTING. Dev's LLM sees the gating conditions as still-unsatisfied because the merge hasn't happened. **PM-direct-action merge of #14/#15 → dev sees PR land on main → next tick has a fresh signal "main now contains the merged code" → dev wakes up and pushes #19/#20 follow-up commit.**
+
+    **§3 摸鱼信号 column for this pattern:** write "🔴 stale-claim loop (Nd, fix: unblock gating PR)" — not the plain "🔴 摸鱼" verdict. The boss needs to see the unblock action, not "dev is slacking". This pattern often pairs with a §2.7 boss-merge-PR deadlock: when dev is in stale-claim loop AND the gating PRs are unreviewed/unmerged, the right PM move is the PM-direct-action one-liner (§2.10) which fixes BOTH deadlock at once.
+
+    **Generalized rule:** when `0 commit + 0 PR + 0 评论` continues across 3+ 2h windows BUT cron is firing and LLM is executing, check the Issue body for `[PROCESS]` AND-conditions and the dev's last comment for "等 X" phrasing. If found, the dev is in a stale-claim loop, not a true idle state. Unblock the gating X — usually by `gh pr merge` on a related PR, or by派单 reviewer to actively close a follow-up Issue, or by posting a PM comment that explicitly states "X is no longer a gate, please proceed".
+
+24. **Read the previous 2h report's §0/§5 BEFORE writing the new one (added 2026-07-23, PM bi-hourly run).** When a deadlock spans multiple 2h cycles, the new report must (a) anchor on the previous report's PM-direct-action one-liner, (b) re-query `gh pr view --json mergeable,mergeStateStatus` for each PR in the one-liner (per §2.9 staleness check), (c) include a Δ table showing "previous cycle's verdict vs this cycle's verdict", (d) keep the same one-liner if Δ=0, or re-emit a corrected one-liner if any PR flipped state. Recipe:
+
+    ```python
+    # 1. Find the most recent PM bi-hourly report
+    from pathlib import Path
+    out = Path(r"C:/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/cron/output")
+    # Pick the dir with the most .md files (the bihourly dir, not the polling dirs)
+    bihourly_dir = max((d for d in out.iterdir() if d.is_dir()), key=lambda d: len(list(d.glob("*.md"))))
+    reports = sorted(bihourly_dir.glob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True)
+    prev = reports[0].read_text(encoding="utf-8")
+    # 2. Extract the previous one-liner's PR numbers (regex on §5 block)
+    import re
+    prev_prs = re.findall(r"PR\s*#\s*(\d+)", prev)
+    # 3. Re-query current mergeable for each
+    import subprocess, json
+    cur = {}
+    for n in prev_prs:
+        v = json.loads(subprocess.check_output(
+            ["gh","pr","view",n,"--json","mergeable,mergeStateStatus,headRefName,state,additions"],
+            text=True
+        ))
+        cur[n] = v
+    # 4. Build the Δ table for §5
+    ```
+
+    Without this step, the new report risks two errors: (a) re-running a one-liner that has gone stale (PR flipped to CONFLICTING since last cycle — see §2.9 real-case table) — boss paste-merges a non-mergeable PR and gets an opaque failure; (b) drifting away from the previous report's structure, making the cycle-to-cycle diff harder for the boss. Always re-query, always Δ.
+
 ---
+
+25. **§5 #22 line-0 trap — the cron wrapper's first line is the header, NOT the report title (learned 2026-07-24, PM #117 run).** When applying the §5 #22 N-extraction recipe, `splitlines()[0]` returns `# Cron Job: <name>` (the cron wrapper's metadata header, written before the LLM prompt) — `re.search` on that line returns `None` for every report. The actual title `# 📊 PM 双小时状态报告 #N` lives in the LLM `## Response` section near the END of the file, not the start. For a 60-70KB bi-hourly output that's typically ~line 500+ (file total ~630 lines). **Fix:** always apply `re.search(pattern, full_content)`, never restrict to `splitlines()[0]` or `[1]`. Verified working recipe:
+
+   ```python
+   from pathlib import Path
+   import re
+   bihourly = Path("C:/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/cron/output/d26c66fbbdd0")
+   reports = sorted(bihourly.glob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True)
+   content = reports[0].read_text(encoding="utf-8", errors="replace")
+   m = re.search(r'#\s*📊\s*PM\s+双小时状态报告\s*#\s*(\d+)', content)
+   prev_N = int(m.group(1)) if m else None
+   this_N = prev_N + 1 if prev_N else 1
+   ```
+
+   This is the canonical fix for §5 #22 step 2 — `splitlines()` is the wrong API for cron output files because the wrapper prepends a fixed header before the LLM body. §2.8's recipe (mapping `dir_id → friendly name` via `splitlines()[0]`) is the OPPOSITE case: there the header is what you want, so the API choice is correct.
 
 ## 6. The 5 Numbers That Always Go in §0 (一页速读)
 

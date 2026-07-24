@@ -11,47 +11,32 @@ When a PM bi-hourly or daily report suspects cron issues, this is the canonical 
 
 ## Output structure to know
 
-Each cron tick produces **two files** in `<profile_home>/cron/output/<job_id>/`:
+A scheduled minute can create outputs in **different job-ID directories** when duplicate registrations coexist: the lowercase prompt-driven job writes a large LLM envelope, while the uppercase `script`/`no_agent` shadow writes a tiny status marker. Do not assume that every logical tick produces two files in one directory.
 
-| File | Size | Content |
-|---|---|---|
-| `YYYY-MM-DD_HH-MM-SS.md` (real run) | 15-50 KB | Full LLM prompt + response. Contains `## Response` section, even if response is `[SILENT]`. |
-| `YYYY-MM-DD_HH-MM-SS.md` (status marker) | 150-200 bytes | Just the wrapper's exit-status block. Contains `Status: ok` / `silent (empty output)` / `script failed`. |
+| File class | Typical size | Content | What it proves |
+|---|---:|---|---|
+| LLM envelope | ≥5 KB (often 60–110 KB as skills grow) | Repeated prompt + final `## Response` payload | The LLM path ran; **not** that useful work occurred |
+| Wrapper marker | 150–250 bytes (<1KB) | `Status: ok`, `silent (empty output)`, or `script failed` | Only the script wrapper's terminal status |
 
-**The 1000-byte size threshold reliably separates them.** Marker files are always < 250 bytes; LLM runs are always > 5 KB (because the prompt includes the full SKILL.md).
+**The 1000-byte threshold reliably separates wrapper markers from LLM envelopes, but it does not classify productivity.** To classify the outcome, extract text after the **last** `## Response` marker and distinguish semantic `[SILENT]` from non-silent responses; then verify GH-side artifacts.
 
-## Verified audit snippet (Python, Windows-safe)
+## Verified audit command (Windows-safe)
 
-```python
-from pathlib import Path
-import datetime, json
-from collections import Counter
+Use the maintained response-aware probe rather than reimplementing size heuristics:
 
-base = Path("C:/Users/Administrator/AppData/Local/hermes/profiles")
-SINCE = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
-
-def audit(profile_name, label):
-    pdir = base / profile_name / "cron/output"
-    files = [p for p in pdir.rglob("*.md")
-             if datetime.datetime.fromtimestamp(p.stat().st_mtime) >= SINCE]
-    counts = Counter()
-    real_runs = 0
-    for p in files:
-        if p.stat().st_size < 1000:  # marker file
-            txt = p.read_text(encoding='utf-8', errors='replace')
-            if "script failed" in txt: counts["script failed"] += 1
-            elif "silent (empty output)" in txt: counts["silent"] += 1
-            elif "ok" in txt: counts["ok"] += 1
-            else: counts["other"] += 1
-        else:
-            real_runs += 1
-    print(f"{label}: markers={dict(counts)} real_runs={real_runs}")
-    return counts, real_runs
-
-audit("handsome_company_manager", "PM")
-audit("handsome_company_developer", "DEV")
-audit("handsome_company_reviewer", "REVIEWER")
+```bash
+python scripts/check_pm_cron_liveness.py --all --window-hours 24 --task-polling-only --json
 ```
+
+For each job, inspect:
+
+- `counts.marker` — wrapper markers (<1KB)
+- `counts.real_llm` — LLM envelopes (liveness only)
+- `counts.semantic_silent` — exact `[SILENT]`, legacy `[SILENT`, or explanatory response ending in `[SILENT]`
+- `counts.non_silent` — responses that may represent work; still verify GitHub artifacts
+- `counts.response_unparsed` — envelope lacked a parseable final response marker
+
+The script also case-normalizes friendly names, maps `REVIEW → rev`, and separates uppercase shadows from lowercase workers.
 
 ## Interpretation
 
