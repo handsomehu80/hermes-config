@@ -9,11 +9,11 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-23** — no-op archive; no entries in MEMORY.md
+> Latest run: **2026-07-25** — no-op archive; no entries in MEMORY.md
 > carried an internal date older than the 30-day cutoff
-> (2026-06-23). The dated active entries are
-> `1+N 数字员工集成(2026-07-08)` (15d old) and
-> `Credential state (2026-07-20)` (3d old); both remain within the
+> (2026-06-25). The dated active entries are
+> `1+N 数字员工集成(2026-07-08)` (17d old) and
+> `Credential state (2026-07-20)` (5d old); both remain within the
 > 30-day window. Undated environment-state facts (Host, Hermes
 > v0.15.1, Agent Team summary, PM 铁律+陷阱, PM cron) remain in place
 > per the "no internal date → don't archive on mtime" rule. USER.md
@@ -22,18 +22,19 @@
 > `reflect()` was attempted via `hindsight_reflect.py handsome_company_manager`
 > with a consolidation query. The embedded daemon timed out after 180
 > seconds; runner exit code = 1. Time-scoped current-run signature at
-> **2026-07-23 21:01:41**: `LLM trace write failed for scope=verification:
-> PostgreSQLBackend is not initialized. Call initialize() first.` The
-> retained Hindsight log still contains the historical HF cross-encoder
-> / Hugging Face connection-reset cascade (`[WinError 10054]` and
-> `Cannot send a request, as the client has been closed`); no mental model
-> was created or updated. `HF_TOKEN` remains present-but-commented-out
-> (inactive) in `.env`; markdown memory remains the authoritative store.
-> The failed daemon left a fresh 0-byte Hindsight lock; port 9807 was
-> confirmed not listening and the lock was removed safely. Pre-flight
-> found no `memories/*.lock`. `agent.log` is fresh from this run and
-> `errors.log` is current (~50m), while `gateway.log` is ~66h stale;
-> per the tri-state rule this indicates a live agent with a stale logging
+> **2026-07-25 21:01:39–21:01:40**: Hugging Face HEAD requests for the
+> cross-encoder and embedding model failed with `[WinError 10054]`, then
+> `cross_encoder.initialize()` raised `RuntimeError: Cannot send a request,
+> as the client has been closed.` No mental model was created or updated.
+> `HF_TOKEN` remains present-but-commented-out
+> (inactive) in `.env` (verified via state-detection recipe); markdown
+> memory remains the authoritative store. The failed daemon left a fresh
+> 0-byte `~/.hindsight/profiles/handsome_company_manager.lock`;
+> port 9807 was probed and confirmed not listening, then the lock was
+> removed safely. Pre-flight found no `memories/*.lock`. Tri-state
+> liveness: `agent.log` is fresh from this run (0m) and `errors.log`
+> is current (~51m), while `gateway.log` is ~42.1h stale; per the
+> tri-state rule this indicates a live agent with a stale logging
 > artifact, not a proven gateway-down condition.
 
 ---
@@ -73,6 +74,16 @@ trusting this trick.
 ## Archive housekeeping
 
 - Created: 2026-07-09 (cleanup cron).
+- 2026-07-25 — no-op archive (cutoff 2026-06-25). Dated active entries remain 2026-07-08 (17d) and 2026-07-20 (5d); no entries exceed the 30-day window. Undated current-state facts stay active. USER.md unchanged.
+  - Pre-flight: no stale `memories/*.lock` files to clean. Tri-state liveness (`gateway.log` ~42.1h stale, `agent.log` 0m fresh, `errors.log` ~51m) confirms the agent/gateway path is alive — the stale gateway log is a logging artifact, not a gateway-down signal.
+  - Hindsight is enabled (`memory.provider: hindsight`) and installed. `hindsight_reflect.py handsome_company_manager` ran with a consolidation query; the embedded daemon timed out after 180s, exit code 1. Current-run signature at **2026-07-25 21:01:39–21:01:40**: Hugging Face HEAD requests for `cross-encoder/ms-marco-MiniLM-L-6-v2` and `BAAI/bge-small-en-v1.5` failed with `[WinError 10054]`, then `cross_encoder.initialize()` raised `RuntimeError: Cannot send a request, as the client has been closed.` No mental model was created or updated.
+  - The failed daemon left a fresh 0-byte `~/.hindsight/profiles/handsome_company_manager.lock`; port 9807 was confirmed NOT listening, then the lock was removed safely.
+  - `HF_TOKEN` is still present-but-commented-out in the profile `.env`. Boss action remains one of: uncomment and set a real `HF_TOKEN`, switch Hindsight to `local_external`, or use cloud mode. Markdown memory remains authoritative.
+- 2026-07-24 — no-op archive (cutoff 2026-06-24). Dated active entries remain 2026-07-08 (16d) and 2026-07-20 (4d); no entries exceed the 30-day window. Undated current-state facts stay active. USER.md unchanged.
+  - Pre-flight: no stale `memories/*.lock` files to clean. Tri-state liveness (gateway.log ~18.1h stale, agent.log 0m fresh, errors.log 49m) per §3 confirms the agent/gateway path is alive — the stale gateway.log is a logging artifact, not a gateway-down signal.
+  - Hindsight is enabled (`memory.provider: hindsight` per `config.yaml`) and installed (`hindsight-all 0.8.4`). `hindsight_reflect.py handsome_company_manager` ran with a consolidation query; embedded daemon timed out at the 180s mark, exit code 1. Current-run signature at **2026-07-24 21:02:03**: `WARNING - hindsight_api.engine.llm_trace - LLM trace write failed for scope=verification: PostgreSQLBackend is not initialized. Call initialize() first.` No mental model was created or updated. The retained log still contains the historical HF cross-encoder connection-reset cascade (`[WinError 10054]` / `Cannot send a request, as the client has been closed`); this run, like 7-21/7-22/7-23, never got far enough to surface new HF HEAD-retry lines.
+  - The failed daemon left a fresh 0-byte `~/.hindsight/profiles/handsome_company_manager.lock` (3m old); port 9807 was probed and confirmed NOT listening, then the lock was removed safely.
+  - `HF_TOKEN` is still present-but-commented-out in `~/.hermes/profiles/handsome_company_manager/.env` (verified this run via the §HF_TOKEN state-detection recipe). Boss action STILL open (12th consecutive same-signature day; same trio as 7-13..7-23): uncomment and set a real `HF_TOKEN`, or switch Hindsight to `local_external`, or use cloud mode.
 - 2026-07-17 — no-op archive (cutoff 2026-06-17; dated active entries are 2026-07-08 and 2026-07-17). Corrected two stale active-memory facts: profile identity (`default` → `handsome_company_manager`) and credential state (`GITHUB_TOKEN` is configured). Hindsight `reflect()` attempted because the provider is enabled:
   - The reusable runner initially assumed `~/.hermes/profiles/.../.env`; this Windows profile lives under `%LOCALAPPDATA%/hermes/profiles/...`. The skill script was patched to search `HERMES_HOME`, `~/.hermes`, and `%LOCALAPPDATA%/hermes`.
   - With the correct profile environment loaded, the embedded daemon timed out after 180 seconds. Log signature: Hugging Face HEAD request to `BAAI/bge-small-en-v1.5` failed with `[WinError 10054]`, preventing cross-encoder initialization. No `reflect()` result or mental-model update was produced.

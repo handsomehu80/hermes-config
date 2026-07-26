@@ -1,7 +1,7 @@
 ---
 name: pm-bi-hourly-status-report
 description: "PM's recurring every-2-hours status report playbook — data collection, 4-state classification, report template, pitfalls."
-version: 1.7.0
+version: 1.8.0
 parent_skill: oneplusn
 metadata:
   hermes:
@@ -457,6 +457,45 @@ git merge-tree "$BASE" origin/main "$PR_BRANCH" | head -20
 
 The merge-base + merge-tree invocation never touches the working tree — safe to run from any cron context, no risk of half-merged state. **But** when `git fetch origin` times out (Failed to connect to github.com:443 — seen on 2026-07-21 PM #81), `merge-tree` operates on stale local `origin/main` and produces a wrong verdict. **In that case, `gh pr view --json mergeable,mergeStateStatus` is the sole authority** — `gh` uses its own authenticated HTTPS path via `~/.config/gh/hosts.yml`, separate from git's fetch path. Don't fail the report when fetch is unreachable; note it in §5 and ship the `gh pr view` verdict.
 
+**Add/add conflict caveat (added 2026-07-25, PM #132 run) — `merge-tree` can miss add/add conflicts.** When BOTH the PR branch and `origin/main` ADD the same file with different content, `git merge-tree` output may NOT produce `<<<<<<<` markers (it shows "added in both" lines, which look identical to a clean add). GitHub's `mergeStateStatus=DIRTY` check uses a stricter 3-way merge that flags add/add as a real conflict. **The reliable verdict for this case is `gh pr view --json mergeStateStatus`, NOT the `<<<<<<<` marker counter.** Diagnostic recipe — confirm add/add as the root cause:
+
+```bash
+# 1. What does the PR want to delete / change from main?
+git diff origin/main origin/<pr-branch> --stat
+# → look for files with "X → 0" deletions or huge line-count diffs
+
+# 2. Did main also touch those files since the PR was forked?
+git log --oneline <merge-base-sha>..origin/main -- <file>
+# → if main added the same file AFTER the PR forked, that's add/add
+
+# 3. Authoritative verdict (catches add/add; merge-tree misses)
+gh pr view <N> --json mergeable,mergeStateStatus
+# → mergeStateStatus=DIRTY confirms the add/add conflict
+```
+
+**Verified-real-case (2026-07-25 PM #132):**
+
+```text
+# merge-tree verdict: clean (0 markers for all 3 PRs)
+PR #13: base=7b169a39 conflict_markers=0
+PR #14: base=13a84697 conflict_markers=0
+PR #15: base=13a84697 conflict_markers=0
+
+# gh pr view verdict: DIRTY for #14/#15 (add/add on docs files)
+PR #14 [DIRTY/CONFLICTING] head=267a0661f
+PR #15 [DIRTY/CONFLICTING] head=238841619
+
+# Conflict root cause (from git diff --stat + git log):
+# PR #14 adds docs/budget-middleware.md (111 lines, commit 267a0661f, 2026-07-13)
+# PR #15 adds docs/evaluator-agent.md (354 lines, commit 238841619, 2026-07-13)
+# main ALSO added docs/budget-middleware.md + docs/evaluator-agent.md
+#   via commit 6e5cc7c "docs(issue-8): joint verification report + evidence"
+#   on 2026-07-13/14 (different content)
+# → add/add conflict → GitHub DIRTY → rebase required
+```
+
+**Generalized rule:** never conclude "PR is clean to merge" from `merge-tree`'s 0-marker count alone. Always pair with `gh pr view --json mergeStateStatus`. If `mergeStateStatus=DIRTY` despite merge-tree showing 0 markers, suspect add/add on shared docs/config files and apply the diagnostic recipe above to confirm before emitting the one-liner.
+
 **Verified-working real case (2026-07-22 PM run, current session):**
 
 ```text
@@ -480,6 +519,32 @@ This is the canonical "1 clean + 2 dirty" pattern. The PM-direct-action one-line
 **Important caveat — state can flip between reports in EITHER direction** (added 2026-07-22, real case). PR #14 and #15 were `MERGEABLE` on the 2026-07-19 PM #52 report (per the §2.10 staleness check); they flipped to `CONFLICTING` by 2026-07-22 even though no new PR was merged to main in between (only config-backup commits). Suspected cause: GitHub periodically recomputes mergeable state when any push event touches main, and the daily cron-backup pushes are exactly such events. **The previous report's `mergeable` verdict is NOT safe to copy-paste into a new one-liner** — always re-query the same day, and the Δ vs previous one-liner table (§2.10) is the explicit cross-check. When `mergeStateStatus=DIRTY`, rebase first; when `CLEAN`, merge directly.
 
 This is the **only reliable pre-flight check** for the PM-direct-action one-liner (§2.10).
+
+### 2.13 `gh pr list --json mergeable` returns `UNKNOWN` for ALL PRs — never use it for pre-flight (added 2026-07-26, PM #139)
+
+Verified on 2026-07-26 PM #139 with a 4-PR dataset (#18 MERGED + #13/#14/#15 OPEN). A single `gh pr list --state all --json number,state,mergeable,mergeStateStatus,additions,headRefName` call returned `mergeable=UNKNOWN` and `mergeStateStatus=UNKNOWN` for **all 4 PRs** — including the already-MERGED PR #18. The same data points queried individually via `gh pr view <N> --json number,state,mergeable,mergeStateStatus,additions` returned the correct state: PR #13 `MERGEABLE/CLEAN`, PR #14 `CONFLICTING/DIRTY`, PR #15 `CONFLICTING/DIRTY`. PR #18 still reports `state=MERGED` regardless of which surface you query — only `mergeable`/`mergeStateStatus` are unreliable in bulk mode.
+
+**Root cause.** `gh pr list --json mergeable` issues one REST query that returns whatever GitHub has cached for each PR's merge-state computation. For PRs whose merge state has never been queried individually, the cache has never been primed, and `gh` substitutes `UNKNOWN`. Per-PR `gh pr view` triggers a fresh compute and caches it. The bulk form cannot distinguish "cached CLEAN" from "never queried" — both look like `UNKNOWN` to the caller. You cannot even use `mergeable=UNKNOWN on a MERGED PR` as a "fresh, never queried" tell, because that case also returns `UNKNOWN`.
+
+**Implication for the §2.9 / §2.10 PM-direct-action workflow:**
+
+1. **Never use `gh pr list --json mergeable,mergeStateStatus` for the §2.9 pre-flight.** Always loop with `gh pr view <N> --json number,state,mergeable,mergeStateStatus,headRefName,additions` to get authoritative state.
+2. **`gh pr list --json` is fine for everything EXCEPT `mergeable` / `mergeStateStatus`.** Other fields (`number`, `state`, `mergedAt`, `additions`, `author`, `updatedAt`, `title`) populate correctly in bulk.
+3. **The §5 #24 staleness-check recipe (re-query each PR after every report) implicitly depends on per-PR `gh pr view` calls** — same root cause as why the bulk form is unreliable. The recipe is correct; this section explains the underlying mechanism.
+
+**Canonical pre-flight loop (the only reliable §2.9 input):**
+
+```bash
+for n in 13 14 15 18; do
+  gh pr view "$n" --repo <org>/agent_workflow \
+    --json number,state,mergeable,mergeStateStatus,headRefName,additions \
+    --jq '"\(.number) | state=\(.state) mergeable=\(.mergeable) mergeStateStatus=\(.mergeStateStatus) +\(.additions) \(.headRefName)"'
+done
+```
+
+**Symptom when you got it wrong:** the §5 Δ table shows the same `UNKNOWN` verdict on both rows (this cycle vs previous report) with no actual progression and no one-liner confidence. Switch to per-PR `gh pr view` calls and the Δ table populates correctly with `MERGEABLE/CLEAN` vs `CONFLICTING/DIRTY` verdicts.
+
+**Generalized rule:** any pre-flight that depends on real-time merge-state correctness must use per-PR `gh pr view`. Bulk `gh pr list` is a fast overview tool but not a verdict tool.
 
 ### 2.10 PM-direct-action one-liner template (added 2026-07-18)
 
@@ -665,6 +730,53 @@ print(f'Since 2h cutoff: {len(recent)}')
    ```
 
    This is the canonical fix for §5 #22 step 2 — `splitlines()` is the wrong API for cron output files because the wrapper prepends a fixed header before the LLM body. §2.8's recipe (mapping `dir_id → friendly name` via `splitlines()[0]`) is the OPPOSITE case: there the header is what you want, so the API choice is correct.
+
+26. **3-way distinction for `[SILENT]` cron output — "echo" vs "worked-then" vs "skill-dump" (added 2026-07-25 PM #127).** The §5 #23 stale-claim loop diagnosis has a row that reads "Cron output dir shows `[SILENT]` for every recent tick? ✅ yes" — applied mechanically, this over-flags. Real case (2026-07-25 PM #127): dev's polling output was **103KB** with substantive cross-verification BEFORE the `[SILENT]` marker: *"Prior Python poller output (ts=2026-07-24T19:31:04Z) and fresh urllib cross-verify at this tick **agree exactly**: 2 open issues assigned to `@handsome-hudeveloper` (#19, #20), last comment on each is by self at 2026-07-16, no labels, single assignee, state=open. has_new_feedback=False for both. Iron-rule paranoid checks (multi-assignee, recent closure, reviewer events) all clear. Per Fix #32 dual-poller protocol, the two signals concur → no work today."* then `[SILENT]`. This is **healthy-active-idle**, NOT a stale-claim loop. The LLM did real verification work and chose `[SILENT]` as the correct verdict because `has_new_feedback=False`.
+
+   The 3-way distinction:
+
+   | Pattern | File size | Substance between `## Response` and `[SILENT]` | Diagnosis | §3 摸鱼信号 |
+   |---|---|---|---|---|
+   | **echo-[SILENT]** (genuine stale-claim loop) | varies | <100 bytes; LLM emits `[SILENT]` immediately after scanning own stale ack comment | 🔴 §5 #23 stale-claim loop | "🔴 stale-claim loop (Nd, fix: unblock gating PR)" |
+   | **worked-then-[SILENT]** (healthy idle) | typically 50-150KB | 500+ bytes of real verification (cross-checks, git log scan, iron-rule compliance, urllib + Python dual-poller agreement) before `[SILENT]` | 🟢 healthy-active-idle | "🟢 healthy-active-idle (cross-verified, has_new_feedback=False)" — NOT "🔴 摸鱼嫌疑" |
+   | **skill-dump-[SILENT]** (drift) | 60-80KB | Multiple verbatim skill headings (`## Pitfall` / `## Hard Constraints` / etc.); no actual report structure | 🔴 cron LLM drift | n/a — this is the bihourly cron issue, not task-polling |
+
+   **Diagnostic recipe (Windows-safe, paste into `execute_code`):**
+
+   ```python
+   from pathlib import Path
+   import re
+   p = Path(r"C:/Users/Administrator/AppData/Local/hermes/profiles/<profile>/cron/output/<poll-job-id>/")
+   files = sorted(p.glob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True)
+   if not files:
+       print("NO_OUTPUT"); raise SystemExit(0)
+   latest = files[0].read_text(encoding="utf-8", errors="replace")
+   # Find LAST ## Response marker, look at what follows
+   matches = list(re.finditer(r"## Response", latest))
+   if not matches:
+       print("NO_RESPONSE_MARKER")
+   else:
+       tail = latest[matches[-1].end(): matches[-1].end()+2000]
+       # Strip leading whitespace
+       tail = tail.lstrip()
+       # 3-way classification
+       is_silent = "[SILENT]" in tail[:200]
+       substance_len = len(tail.split("[SILENT]")[0]) if is_silent else len(tail)
+       has_skill_dump = any(h in latest for h in ["## Pitfall", "## Hard Constraints", "## Per-Agent"])
+       if has_skill_dump and not is_silent:
+           verdict = "🔴 SKILL-DUMP (drift)"
+       elif is_silent and substance_len < 100:
+           verdict = "🔴 ECHO-SILENT (suspect stale-claim loop)"
+       elif is_silent and substance_len >= 500:
+           verdict = "🟢 WORKED-THEN-SILENT (healthy idle)"
+       else:
+           verdict = f"⚠ OTHER (silent={is_silent}, substance={substance_len}B)"
+       print(f"file={files[0].name}  size={len(latest)}B  substance_before_silent={substance_len}B  verdict={verdict}")
+   ```
+
+   **Implication for §2.5 4-state classification:** "worked-then-[SILENT]" with open assigned Issues is still the **stale-verdict deadlock** row of §2.5 IF `last_verdict_age > 48h` from the OTHER side. If `last_verdict_age > 48h` is from SELF (employee doing the polling), it's healthy-active-idle (just choosing [SILENT] every cycle). Always check who wrote the last substantive verdict before tagging deadlock.
+
+   **Generalized rule:** when an LLM cron output is `[SILENT]` + has open assigned Issues + is large (>50KB), the LLM is *probably* healthy — file size alone proves liveness, but the substance between `## Response` and `[SILENT]` proves it's doing real work. Reserve the §5 #23 stale-claim loop label for the genuine echo pattern (<100 bytes between markers).
 
 ## 6. The 5 Numbers That Always Go in §0 (一页速读)
 

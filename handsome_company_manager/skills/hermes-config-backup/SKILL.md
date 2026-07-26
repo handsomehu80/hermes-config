@@ -1,7 +1,7 @@
 ---
 name: hermes-config-backup
 description: "Back up a Hermes Agent profile's configuration to a GitHub repository — discover the repo layout, sync config files while honoring the existing .gitignore, commit, and push. Use when a cron job or user asks to back up Hermes profile config, mirror `~/.hermes/profiles/<profile>/` to a remote git repo, or set up daily/periodic config snapshots. Covers the canonical backup set (config.yaml, SOUL.md, channel_directory.json, memories/, cron/jobs.json, custom skills), the `.bundled_manifest` filter for distinguishing custom skills from bundled ones, Windows Git Bash MSYS gotchas, the `github.com:443` firewall fallback to the GitHub REST API, the Git Data API `BadObjectState` trap when committing 100+ blobs, the parallel-by-dir Contents API push pattern (grouped PUTs avoid the 409 sibling race; serial within dir), nested `.git/` and git-submodule handling, and a re-runnable Python sync script that works on any platform."
-version: 1.5.0
+version: 1.6.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -510,6 +510,49 @@ git push origin main                                   # fast-forward succeeds
 **Why rebase is safe here:** sibling backup commits touch a different `<profile>/` subdir, so the rebase has no conflicts. If two commits touched the same path (e.g. both modified the repo-level `README.md`), rebase surfaces a conflict — abort with `git rebase --abort` and investigate before retrying. With the cron timeout being short, do NOT try to resolve merge conflicts in-cron; abort and let the next tick re-run the full sync.
 
 **Verify after push:** `gh api repos/<owner>/<repo>/commits/<sha>` returns your commit at the tip with the expected author + timestamp + file counts. If `gh api` shows a different SHA, the push actually pushed the rebase result, not the pre-rebase commit — recompute the SHA from `git rev-parse HEAD` after the push.
+
+### Sibling force-push discarded your commit — reflog recovery (NEW 2026-07-25)
+
+A worse variant of the race above: a sibling backup cron did `git reset origin/main` (rewinding local HEAD past your commit) and then **force-pushed** their own commit on top of the older base. Your commit is now gone from both local and remote — `git pull --rebase` will silently drop it because your local branch no longer references it.
+
+**Symptom chain:**
+1. You push and see `X..Y main -> main` ✅
+2. You re-check and `git rev-parse HEAD` returns a SHA that is **not** `Y`. The remote main is now at a SHA that has a different parent than your pushed commit.
+3. `git log --oneline HEAD..origin/main` is **empty** (no remote-only commits), AND `git log --oneline origin/main..HEAD` is also empty — meaning local and remote both point at the sibling's commit, not yours. Your commit was force-pushed away.
+4. `git fetch` says `+ <your-sha>...<sibling-sha> main -> origin/main (forced update)` — the `+` confirms non-fast-forward.
+
+**Recovery from reflog (proven pattern, 2026-07-25 PM backup — my `7785294` PM commit was force-pushed away by the reviewer's cron `bb423b5`):**
+
+```bash
+# 1. Find your lost commit in the reflog
+git reflog | grep -i 'manager\|profile\|pm\|your-distinctive-subject' | head -5
+# Look for HEAD@{N} where N is the most recent occurrence of your commit.
+# If the reviewer/developer did 'git reset origin/main', their reset entry will
+# be RIGHT AFTER your commit entry (HEAD@{N+1} or HEAD@{N+2}).
+
+# 2. Restore your commit as the new HEAD
+git reset --hard <your-lost-sha>
+
+# 3. Replay the sibling's commit on top of yours (so both are preserved)
+git cherry-pick <sibling-sha>
+# If cherry-pick reports conflicts (it shouldn't — different subdirs), abort
+# with `git cherry-pick --abort` and investigate.
+
+# 4. Re-fetch in case more sibling pushes landed while you were working
+git fetch origin
+git rebase origin/main                 # replay onto current remote tip
+# 'Rebasing (1/1)' with 'Successfully rebased' is the success path.
+# If `warning: skipped previously applied commit <X>` appears, that's GOOD —
+# git detected that the commit's diff is already in origin/main (because the
+# sibling's cherry-pick produced an equivalent tree) and skipped it.
+
+# 5. Push
+git push origin main                   # may need 1-2 retries if TCP firewall blocks
+```
+
+**Why this isn't in the simpler "Push rejected" pitfall:** in that flow, your commit is still in local HEAD when you fetch — `git pull --rebase` finds it and replays. In the **force-push** variant, your local HEAD has already been rewound past your commit by the sibling's `git reset`, so a naive `git pull --rebase` will only replay the sibling's commit (already at HEAD) and drop yours. **Always check the reflog first** when `git log HEAD..origin/main` AND `git log origin/main..HEAD` are both empty but you know you pushed something — that's the fingerprint of force-push-overwrite.
+
+**Detection:** if `git fetch origin` output starts with `+` (forced update), or `git reflog` shows a `reset: moving to origin/main` entry between your commit and now, you've been force-pushed over. Don't reach for `git pull --rebase` until you've verified your commit is still in `git rev-parse HEAD`.
 
 ### Multi-profile backup repos show phantom diffs for sibling profiles — stage ONLY your subdir (NEW 2026-07-16)
 

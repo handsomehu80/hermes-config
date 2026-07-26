@@ -203,6 +203,10 @@ Use this pattern whenever you need to:
 - Pass a variable between multiple `gh`/`python` invocations in one step
 - Set `GH_TOKEN` / `GITHUB_TOKEN` to a token you just read from a file
 
+**Why setting only `GITHUB_TOKEN` is silently ignored** (learned 2026-07-25, PM task-polling tick): on this Windows host, the active Hermes terminal shell exports `GH_TOKEN=*** (visible via `env | grep -i gh_token`). When a Python `subprocess.run(..., env=...)` is invoked, the child inherits the parent's `GH_TOKEN` value — which is often a placeholder/bad token. `gh` CLI reads `GH_TOKEN` first and ignores `GITHUB_TOKEN` when both are set. So `env["GITHUB_TOKEN"] = persona_token` produces a subprocess where `gh` STILL tries to auth with the inherited bad `GH_TOKEN`, returning `Bad credentials` or `Failed to log in using token (GH_TOKEN)`. Setting `env["GH_TOKEN"]` overrides the inherited bad value; setting only `GITHUB_TOKEN` does not. The recipe above sidesteps this by setting BOTH keys — but the key that actually does the work is `GH_TOKEN`.
+
+**Diagnostic when `gh` "should be" acting as the persona but isn't**: run `gh auth status` first, then check the "(GH_TOKEN)" parenthetical in the output — that's the env var `gh` actually consulted. If it says "invalid", your `GITHUB_TOKEN` env var was ignored. Switch to setting `GH_TOKEN` (or both) in the subprocess env.
+
 **Rule of thumb:** keep `terminal()` calls to single-statement commands.
 If the command needs command substitution, env-var threading, or
 multi-step pipes, drive it from `execute_code` instead.
