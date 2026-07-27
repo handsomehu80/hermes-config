@@ -9,11 +9,11 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-25** — no-op archive; no entries in MEMORY.md
+> Latest run: **2026-07-26** — no-op archive; no entries in MEMORY.md
 > carried an internal date older than the 30-day cutoff
-> (2026-06-25). The dated active entries are
-> `1+N 数字员工集成(2026-07-08)` (17d old) and
-> `Credential state (2026-07-20)` (5d old); both remain within the
+> (2026-06-26). The dated active entries are
+> `1+N 数字员工集成(2026-07-08)` (18d old) and
+> `Credential state (2026-07-20)` (6d old); both remain within the
 > 30-day window. Undated environment-state facts (Host, Hermes
 > v0.15.1, Agent Team summary, PM 铁律+陷阱, PM cron) remain in place
 > per the "no internal date → don't archive on mtime" rule. USER.md
@@ -22,20 +22,19 @@
 > `reflect()` was attempted via `hindsight_reflect.py handsome_company_manager`
 > with a consolidation query. The embedded daemon timed out after 180
 > seconds; runner exit code = 1. Time-scoped current-run signature at
-> **2026-07-25 21:01:39–21:01:40**: Hugging Face HEAD requests for the
-> cross-encoder and embedding model failed with `[WinError 10054]`, then
-> `cross_encoder.initialize()` raised `RuntimeError: Cannot send a request,
-> as the client has been closed.` No mental model was created or updated.
+> **2026-07-26 21:02:57**: `LLM trace write failed for scope=verification:
+> PostgreSQLBackend is not initialized. Call initialize() first.` No mental
+> model was created or updated.
 > `HF_TOKEN` remains present-but-commented-out
 > (inactive) in `.env` (verified via state-detection recipe); markdown
 > memory remains the authoritative store. The failed daemon left a fresh
 > 0-byte `~/.hindsight/profiles/handsome_company_manager.lock`;
 > port 9807 was probed and confirmed not listening, then the lock was
 > removed safely. Pre-flight found no `memories/*.lock`. Tri-state
-> liveness: `agent.log` is fresh from this run (0m) and `errors.log`
-> is current (~51m), while `gateway.log` is ~42.1h stale; per the
-> tri-state rule this indicates a live agent with a stale logging
-> artifact, not a proven gateway-down condition.
+> liveness: `agent.log` is fresh from this run and `errors.log` is current,
+> while `gateway.log` is ~66h stale; per the tri-state rule this indicates
+> a live agent with a stale logging artifact, not a proven gateway-down
+> condition.
 
 ---
 
@@ -74,6 +73,11 @@ trusting this trick.
 ## Archive housekeeping
 
 - Created: 2026-07-09 (cleanup cron).
+- 2026-07-26 — no-op archive (cutoff 2026-06-26). Dated active entries remain 2026-07-08 (18d) and 2026-07-20 (6d); no entries exceed the 30-day window. Undated current-state facts stay active. USER.md unchanged.
+  - Pre-flight: no stale `memories/*.lock` files to clean. Tri-state liveness (`gateway.log` ~66h stale, `agent.log` fresh from this run, `errors.log` current) confirms the agent path is alive — the stale gateway log is a logging artifact, not a gateway-down signal.
+  - Hindsight is enabled (`memory.provider: hindsight`) and installed. `hindsight_reflect.py handsome_company_manager` ran with a consolidation query; the embedded daemon timed out after 180s, exit code 1. Current-run signature at **2026-07-26 21:02:57**: `LLM trace write failed for scope=verification: PostgreSQLBackend is not initialized. Call initialize() first.` No mental model was created or updated.
+  - The failed daemon left a fresh 0-byte `~/.hindsight/profiles/handsome_company_manager.lock`; port 9807 was confirmed NOT listening, then the lock was removed safely.
+  - `HF_TOKEN` is still present-but-commented-out in the profile `.env`. Boss action remains one of: uncomment and set a real `HF_TOKEN`, switch Hindsight to `local_external`, or use cloud mode. Markdown memory remains authoritative.
 - 2026-07-25 — no-op archive (cutoff 2026-06-25). Dated active entries remain 2026-07-08 (17d) and 2026-07-20 (5d); no entries exceed the 30-day window. Undated current-state facts stay active. USER.md unchanged.
   - Pre-flight: no stale `memories/*.lock` files to clean. Tri-state liveness (`gateway.log` ~42.1h stale, `agent.log` 0m fresh, `errors.log` ~51m) confirms the agent/gateway path is alive — the stale gateway log is a logging artifact, not a gateway-down signal.
   - Hindsight is enabled (`memory.provider: hindsight`) and installed. `hindsight_reflect.py handsome_company_manager` ran with a consolidation query; the embedded daemon timed out after 180s, exit code 1. Current-run signature at **2026-07-25 21:01:39–21:01:40**: Hugging Face HEAD requests for `cross-encoder/ms-marco-MiniLM-L-6-v2` and `BAAI/bge-small-en-v1.5` failed with `[WinError 10054]`, then `cross_encoder.initialize()` raised `RuntimeError: Cannot send a request, as the client has been closed.` No mental model was created or updated.
