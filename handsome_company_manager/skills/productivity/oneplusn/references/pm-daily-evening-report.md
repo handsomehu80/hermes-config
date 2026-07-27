@@ -372,6 +372,29 @@ Read `counts.semantic_silent`, `counts.non_silent`, and `counts.response_unparse
 
     **Generalized rule:** the daily and bihourly are TWO endpoints of the same escalation pipeline. The bihourly is the high-frequency probe (12×/day); the daily is the low-frequency summary (1×/day) that should **consume** the bihourly's latest verdict, not re-derive it. Always read the most recent bihourly before writing §7.
 
+34. **`/repos/<org>/<repo>/pulls?state=all` returns `additions=0, deletions=0` for ALL PRs in one fetch — query `/pulls/{n}` individually for accurate sizes** (learned 2026-07-27, PM #155 daily run). Real case: bulk endpoint returned `+0 -0` for #13 / #14 / #15 / #18 even though the PRs clearly have content (multiple commits since 7-13). Switching to per-PR `GET /repos/<org>/<repo>/pulls/{n}` returned correct values (`#13 +917`, `#14 +435`, `#15 +901`, `#18 +1091`). Cause unclear — possibly a REST API pagination / preview-header quirk when the response spans PRs from multiple branches with diverged merge-bases. **Fix**: when building the §2 PR snapshot table, prefer one-per-PR individual fetches over the bulk list, OR use `gh pr view <N> --json additions,deletions,mergeable,mergeStateStatus,headRefName,baseRefName` per PR. The bulk list is fine for `number/title/state/author/created_at/updated_at`; size + mergeable need the per-PR endpoint. Add the per-PR loop as a dedicated step after the bulk snapshot, don't try to merge them.
+
+35. **`/repos/<org>/<repo>/issues/events` returns `subscribed` + `mentioned` event types as noise — must filter by event type when classifying per-role contributions** (learned 2026-07-27, PM #155 daily run). Real case: the 24h events endpoint returned 8 events from 4 actors (PM/dev/reviewer/boss), all classified as `subscribed` (4) or `mentioned` (4). If naively counted via `Counter(e["actor"]["login"] for e in events)`, every employee appears to have 2 "events" — but NONE were real business actions (no `closed`, `assigned`, `labeled`, `reviewed`, etc.). The events endpoint is fine for activity TIMING but unreliable for activity CLASSIFICATION. **Fix**: when computing the §4 "每人当日贡献" per-role counters from the events endpoint, filter by event type first:
+
+    ```python
+    BUSINESS_EVENTS = {"closed", "assigned", "labeled", "unlabeled", "renamed",
+                       "review_requested", "review_dismissed", "pinned",
+                       "transferred", "milestoned", "demilestoned"}
+    events = gh_api(f"/repos/{org}/{repo}/issues/events?per_page=100&since={W_START_ISO}")
+    real_events = [e for e in events if W_START <= e["created_at"] <= W_END
+                   and e["event"] in BUSINESS_EVENTS]
+    ```
+
+    If `real_events` is empty for an actor, that actor's row in §4 should show `Issue 动作: 0` — do NOT inflate with `subscribed`/`mentioned`. Comments-via-the-comments-endpoint are the more reliable per-role contribution signal; events are a useful cross-check only for `closed` / `labeled` actions that the comments endpoint misses.
+
+36. **`last_status=ok` + output-dir newest-file age > 1.5× schedule period = cron schedule drift, NOT normal idle** (learned 2026-07-27, PM #155 daily run, on PM config-backup job `74ebd0a0`). Real case: the `oneplusn-PM-config-backup` job (`schedule: 0 20 * * *` = daily at 20:00 CST = 12:00 UTC) had `last_status=ok` BUT its newest output file was **19h old** at the moment of the daily run (15:05 CST today). The "ok" was set by the **previous day's** fire — not today's. Today's scheduled fire at 20:00 CST (= 12:00 UTC) was still 5h in the future, but the 19h gap meant yesterday's 20:00 CST fire ALSO didn't land (the previous fire before that would have been ~48h ago, not 19h). The discrepancy surfaced only because today's `git log --all --since="24 hours ago"` showed 2 commits (reviewer + dev backups) instead of the expected 3 (PM was missing). **Fix — three-step self-flag**:
+
+    1. When checking cron liveness in §6, compare `output_dir.newest_mtime` against `now - schedule_period * 1.5`. If age exceeds, flag the cron as 🟡 "schedule drift" in §3 — not as 🟢 healthy idle.
+    2. Cross-reference with `git log --all --since="24 hours ago"` to confirm whether the expected cron artifact (e.g. the auto `chore: back up <profile> Hermes config` commit) is present. Missing artifact + healthy `last_status` = schedule drift.
+    3. Surface as a `self-flag` row in §4 (PM row gets `🟡 self-flag` instead of clean `—`) and a one-line entry in §8 ("PM config-backup missing 24h commit,排查触发链"). Do NOT report it as 🔴 unless 48h+ have passed without the artifact — 19h is recoverable before the next scheduled fire.
+
+    The pattern: `last_status` is a STICKY flag from the last completed run, not a liveness check. Combine with output-dir mtime to detect schedule drift.
+
 ---
 
 ## 6. Daily-Report-Specific Operational Checks
