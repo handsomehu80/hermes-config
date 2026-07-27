@@ -1,7 +1,7 @@
 ---
 name: pm-bi-hourly-status-report
 description: "PM's recurring every-2-hours status report playbook — data collection, 4-state classification, report template, pitfalls."
-version: 1.8.0
+version: 1.9.0
 parent_skill: oneplusn
 metadata:
   hermes:
@@ -659,6 +659,18 @@ print(f'Since 2h cutoff: {len(recent)}')
 
    **Don't** use the regex on the report's own body (PR numbers like #13/#14/#15 will pollute the match). Anchor on the title only.
 
+   **Don't** trust the FIRST `re.search` match — template-placeholder pollution from loaded skill content (learned 2026-07-26, PM #145). A 70-80 KB bihourly output embeds the full oneplusn SKILL.md (~64 KB) into the LLM prompt context. When that loaded skill content quotes earlier reports or has worked examples like `PM 双小时状态报告 #135 ...`, `re.search` may return **that** literal number, not the actual title of the report you're parsing. Verified real case (2026-07-26 PM #145): full-file `re.search(r'#\s*📊\s*PM\s+双小时状态报告\s*#\s*(\d+)', content)` against the latest bihourly output (`2026-07-26_18-03-07.md`, 83866 B) returned `#135` (extracted from a SKILL.md-quoted text on ~line 327 — it referenced an older reference report), when the actual previous report title was `#144` (and trailing "✅ 完成" line confirmed). Fix — use `re.findall(pattern, content)` and take the **LAST** match (the trailing `第 N 期完成` line is nearly always authoritative), OR restrict the search to text **after** the last `## Response` marker (`re.search(pattern, content.split('## Response')[-1])`), OR cross-check that the captured N is consistent with `mtime` monotonicity plus the trailing "完成" line. Always corroborate with at least 2 sources before publishing.
+
+   **Tighter regex refinement (learned 2026-07-27, PM #153 run):** append `\s*\(` to the regex to require the trailing `(` of the `(YYYY-MM-DD HH:MM UTC)` date format that real titles always have. Skill-content pollution appears as bare backticked references like `` `#135` report in tail `` — no `(` follows — so the anchor filters them out cleanly without needing the "take last match" or "after `## Response`" workaround. Verified working recipe:
+
+   ```python
+   m = re.search(r'#\s*📊\s*PM\s+双小时状态报告\s*#\s*(\d+)\s*\(', content)
+   prev_N = int(m.group(1)) if m else None
+   this_N = prev_N + 1 if prev_N else 1
+   ```
+
+   On the 2026-07-27 PM #153 run, the previous bi-hourly file (`2026-07-27_10-03-09.md`, 83517 B) had TWO candidates: pos=39802 `` `#135` `` (skill-content pollution, no trailing `(`) and pos=79957 `#152(2026-07-27 01:48 UTC)` (real title). The tightened regex returned `#152` on the first match — no `findall`/last-match workaround needed. **However**, keep the cross-check with the trailing "完成" line as a sanity guard: if `\s*\(` filters accidentally exclude the real title (e.g. someone reformatted to remove the `(date)` portion), you'll fall back to the line-0 / findall paths. Use both.
+
    **Don't** emit `#N` or `#N+1` literally — always an integer.
 
 21. **The "[SILENT] = 摸鱼" false positive: cron-firing + LLM-silent ≠ idle (added 2026-07-18).** A common PM error: see "0 commits + 0 comments in 2h" → tag 摸鱼. But the [SILENT] cron output (see §2.5 Step C) shows the LLM is doing exactly what its skill says to do when there's no new feedback: return `[SILENT]`. The diagnostic chain is: (1) §2.5 Step A confirms cron firing (fresh .md in output dir); (2) §2.5 Step B confirms LLM executing (file > 50KB); (3) §2.5 Step C confirms LLM verdict (`[SILENT]`); (4) §2.5 Step D shows open assigned Issues, if any. Only after ALL four checks should you tag 摸鱼. In the 2026-07-18 PM run, both dev and reviewer were returning `[SILENT]` correctly under the skill — not 摸鱼, but "waiting for boss to merge PRs" (boss-merge-PR deadlock per §2.7). The §3 contribution-table row should show "0 commit / 0 评论" but with the §2.5 4-state label (e.g. "🟢 healthy idle" or "🔴 boss-merge-PR deadlock"), NOT "🔴 摸鱼". Reserve "🔴 摸鱼" for the case where Steps A-C confirm cron firing + LLM executing + LLM doing real work BUT no GH-side artifacts AND no boss-merge-PR deadlock — i.e. employee is genuinely idle despite having open work.
@@ -803,6 +815,8 @@ Every 2h report must include the 5 numbers below in the 健康度 table. The bos
 - `references/cron-polling-behavior.md` — the 30-min task-polling cron, with the MSYS `gh api` gotcha and the `[SILENT]` protocol
 - `references/windows-msys-tooling.md` §Pitfall 4 — MSYS path rewrite (the `MSYS_NO_PATHCONV=1` fix)
 - `references/pm-operations-playbook.md` — full worked examples of dispatch / audit / 拍板
+- `references/pm-direct-action-one-liner-worked-example.md` — **verified worked example of the §2.10 PM-direct-action one-liner from PM #156 (2026-07-27)**. Reproduce this structure (Δ vs previous one-liner table + 3-step sequential bash blocks + "Why this time" justification + "1 minute of effort" §6 close) when the next ≥3-consecutive 2h cycle fires against a boss-action-shaped deadlock.
+- `references/count-consecutive-zero-activity-script-bug.md` — **fixed 2026-07-27 PM #156**: the script was matching the cron prompt template's §3 placeholder table (`0 = 摸鱼,3+ = 良好`) instead of the LLM's filled-in §3, masking the boss-merge-PR deadlock. Read this whenever the script's verdict disagrees with manual §3 inspection.
 - `agent-task-polling/references/stale-verdict-deadlock.md` — full diagnostic + Iron Rule #8 candidate (referenced from §2.5)
 - `SKILL.md` §"Pitfall: Cron workdir drift is silent until it isn't" — when `git log` returns empty in the wrong workdir
 
