@@ -423,6 +423,66 @@ See `references/submodule-aware-sync.md` for the re-runnable verification recipe
 
 The same applies to `last_delivery_error`: a delivery error means the cron couldn't post the report to its delivery channel, not that the underlying sync failed.
 
+### API-fallback commits are N-per-file, not 1 — local `git commit` SHA becomes irrelevant (NEW 2026-07-27)
+
+After the Contents API fallback path pushes N files via N PUTs, GitHub records **N separate commits** (one per PUT, sequentially, authored by whoever `gh auth token` resolves to). The single `git commit` you made locally before `git push` failed does **not exist on the remote** — the local HEAD SHA will return 422 (`gh: No commit found for SHA: cff5bdb (HTTP 422)`) if you try to verify it.
+
+**Verification after API-fallback MUST be per-file byte-identity, not commit SHA.** Recipe:
+
+```python
+import base64, hashlib, json, subprocess
+from pathlib import Path
+
+def sha(b): return hashlib.sha256(b).hexdigest()[:16]
+
+REMOTE = Path("<clone>/<profile>")
+for rel in <list_of_changed_files_relative_to_REMOTE>:
+    local_bytes = (REMOTE / rel).read_bytes()
+    local_sha = sha(local_bytes)
+    api_path = "<profile>/" + rel.replace("\\", "/")
+    r = subprocess.run(["gh", "api", f"repos/<owner>/<repo>/contents/{api_path}"],
+                       capture_output=True, text=True)
+    meta = json.loads(r.stdout)
+    remote_bytes = base64.b64decode(meta["content"])
+    remote_sha = sha(remote_bytes)
+    assert local_sha == remote_sha, f"MISMATCH on {rel}"
+print(f"✓ all {len(<list>)} files byte-identical to remote")
+```
+
+**Why this is the right verification:** the `commits?per_page=N` query only confirms N commits landed in the right window — it doesn't prove *your* bytes landed. The SHA-256 comparison on each file is the only way to be sure the diff you committed locally is what's actually on GitHub. Confirmed working on 2026-07-27 PM backup: 8/8 files matched.
+
+**Bonus: enumerate the diff via `git diff --name-status origin/main..HEAD -- <profile>/`** when you have a working clone with an un-pushed commit. Produces exactly the `new_paths` / `modified_paths` lists the `push_via_contents.py` script expects — no manual SHA walk needed:
+
+```bash
+git -C <clone> diff --name-status origin/main..HEAD -- <profile>/
+# M  <profile>/foo.json
+# A  <profile>/bar.md
+# → map A → new_paths, M → modified_paths; strip the <profile>/ prefix
+```
+
+This skips the tarball+SHA-walk path in `references/api-fallback-when-git-blocked.md` §3 when you already have a fresh clone with an un-pushed local commit — much faster, and `git diff` is what backs the canonical `git push` verification.
+
+### `gh auth token` is the right auth source for the API-fallback push — even when `.env` GITHUB_TOKEN disagrees (NEW 2026-07-27)
+
+When the backup cron runs **under an employee profile** (e.g. PM profile `handsome_company_manager`), the profile's `.env` carries `GITHUB_TOKEN=*** but the target repo `handsomehu80/hermes-config` is owned by the boss. The two tokens authenticate as **different GitHub accounts**:
+
+```bash
+$ gh auth status             # ← uses whatever is in the keyring (boss)
+  ✓ Logged in to github.com account handsomehu80 (keyring)
+
+$ grep GITHUB_TOKEN ~/.hermes/profiles/handsome_company_manager/.env
+  GITHUB_TOKEN=***    # ← Handsome-Manager's PAT
+```
+
+`push_via_contents.py` correctly uses `subprocess.check_output(["gh", "auth", "token"])` (NOT `os.environ["GITHUB_TOKEN"]`) so the push is attributed to whichever account `gh` CLI is logged in as. **Do not "fix" this to use `.env` GITHUB_TOKEN directly** — it would break the push (employee PAT usually has no write access to boss's repo, and would 404 / 403 if forced).
+
+**Caller pre-flight before invoking `push_via_contents.py`:**
+
+1. Confirm `gh auth status` shows an account that has write access to the target repo. If not, `gh auth login --with-token < <boss-PAT-file>` first.
+2. The `.env` GITHUB_TOKEN belongs to the *employee* and is irrelevant for the push — but it's still loaded by the cron-prompt env so the rest of the backup pipeline can poll GitHub on the employee's behalf. Don't be tempted to delete or override it.
+
+This is the same identity-mismatch pattern `oneplusn` documents in its Known Fix #10 (each employee needs its own PAT distinct from the boss's), applied to the backup path: the boss's `gh auth` token writes to the backup repo, the employee's `.env` token powers the cron's `gh issue list` / `gh issue edit`. Same machine, different identities, different scopes.
+
 ### Check the working branch before staging files in a shared repo
 
 If you're syncing into a shared work-dir like `D:\onboarding\<team>\` (which is a multi-employee repo with branches like `feat/issue-7-evaluator-harness`, `feat/issue-16-ralph-loop-poc`, etc.), **always `git branch` first**. A common trap:
@@ -594,6 +654,11 @@ After the push, the cron job should report:
 - ✅ Bucket porcelain entries by top-level directory: `git status --porcelain | awk '{print $2}' | xargs -I{} dirname {} | cut -d/ -f1 | sort -u` — expect only YOUR profile subdir; sibling profile dirs in the diff = CRLF pollution that you did NOT introduce, do not stage them
 - ✅ No `.env*` files anywhere in `git status --porcelain` output
 
+**Post-API-fallback verification (when `git push` was blocked and you used Contents API):**
+- ✅ `git rev-parse HEAD` SHA **does NOT** exist on the remote — that's expected, the Contents API created N separate commits, not your local `git commit`. Don't try to `gh api repos/<owner>/<repo>/commits/<local-sha>` — it'll 422.
+- ✅ Per-file byte-identity check: for every file in the diff, `local_sha256 == sha256(base64.b64decode(remote_meta['content']))`. See the "API-fallback commits are N-per-file" pitfall above for the ready-to-run recipe.
+- ✅ Author of the latest remote commits matches whoever `gh auth token` resolves to (typically the boss, not the .env GITHUB_TOKEN identity) — confirm via `gh api repos/<owner>/<repo>/commits?per_page=N`.
+
 If any item is missing, `.env` appears, or sibling dirs leak into the diff — **abort and report** — do not silently succeed.
 
 ## Pre-flight: 30-Second Health Check (do this every cron tick)
@@ -612,6 +677,21 @@ timeout 10 git -c http.version=HTTP/1.1 ls-remote https://github.com/<owner>/<re
 # If this hangs or returns "Connection timed out" → use API path
 # If it returns a list of refs (HEAD, refs/heads/main) → normal git path is fine
 ```
+
+**Identity alignment (often missed — check this even when above all pass):** when the backup cron runs under an employee profile, the `.env` `GITHUB_TOKEN` and `gh auth status` may resolve to **different GitHub accounts**. Confirm the gh-auth account has write access to the target repo before starting, since the push path uses `gh auth token`, not `.env`:
+
+```bash
+# Who's actually going to push?
+gh auth status 2>&1 | grep 'Logged in to'
+# Compare to the repo owner
+gh repo view <owner>/<repo> --json owner 2>&1 | head -1
+
+# Quick write-test (cheap, doesn't pollute history):
+# Skip this if you don't want to test — but if `gh auth status` shows a different
+# account than the repo owner, the push will fail with 404/403.
+```
+
+If `gh auth status` shows the wrong account, `gh auth login --with-token < <correct-PAT-file>` first. Don't try to "fix" `push_via_contents.py` to read `GITHUB_TOKEN` from `.env` — that token belongs to the employee and lacks write access to the boss's repo (see the "`gh auth token` is the right auth source" pitfall below).
 
 ## See Also
 

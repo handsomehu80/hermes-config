@@ -9,32 +9,42 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-26** — no-op archive; no entries in MEMORY.md
+> Latest run: **2026-07-27** — no-op archive; no entries in MEMORY.md
 > carried an internal date older than the 30-day cutoff
-> (2026-06-26). The dated active entries are
-> `1+N 数字员工集成(2026-07-08)` (18d old) and
-> `Credential state (2026-07-20)` (6d old); both remain within the
+> (2026-06-27). The dated active entries are
+> `1+N 数字员工集成(2026-07-08)` (19d old) and
+> `Credential state (2026-07-20)` (7d old); both remain within the
 > 30-day window. Undated environment-state facts (Host, Hermes
 > v0.15.1, Agent Team summary, PM 铁律+陷阱, PM cron) remain in place
 > per the "no internal date → don't archive on mtime" rule. USER.md
 > was unchanged.
-> Hindsight is enabled (`memory.provider: hindsight`) and installed, so
-> `reflect()` was attempted via `hindsight_reflect.py handsome_company_manager`
-> with a consolidation query. The embedded daemon timed out after 180
-> seconds; runner exit code = 1. Time-scoped current-run signature at
-> **2026-07-26 21:02:57**: `LLM trace write failed for scope=verification:
-> PostgreSQLBackend is not initialized. Call initialize() first.` No mental
-> model was created or updated.
-> `HF_TOKEN` remains present-but-commented-out
-> (inactive) in `.env` (verified via state-detection recipe); markdown
-> memory remains the authoritative store. The failed daemon left a fresh
-> 0-byte `~/.hindsight/profiles/handsome_company_manager.lock`;
-> port 9807 was probed and confirmed not listening, then the lock was
-> removed safely. Pre-flight found no `memories/*.lock`. Tri-state
-> liveness: `agent.log` is fresh from this run and `errors.log` is current,
-> while `gateway.log` is ~66h stale; per the tri-state rule this indicates
-> a live agent with a stale logging artifact, not a proven gateway-down
-> condition.
+> Hindsight is enabled (`memory.provider: hindsight`) and installed in
+> the venv (`C:/Users/Administrator/AppData/Local/hermes/hermes-agent/
+> venv/Lib/site-packages/hindsight`), so `reflect()` was attempted via
+> `hindsight_reflect.py handsome_company_manager` with a consolidation
+> query. **Bare `python` returns exit 3** ("No module named 'hindsight'")
+> because hindsight is venv-only — this run invoked the venv python
+> (`venv/Scripts/python.exe`) explicitly, which the script's default
+> exit-3 path would have masked. The embedded daemon timed out after
+> 180s; runner exit code = 1; total elapsed 195.9s. Time-scoped
+> current-run signature at **2026-07-27 21:02:24,221**: `WARNING -
+> hindsight_api.engine.llm_trace - LLM trace write failed for
+> scope=verification: PostgreSQLBackend is not initialized. Call
+> initialize() first.` No mental model was created or updated.
+> `HF_TOKEN` remains present-but-commented-out (inactive) in `.env`
+> (verified via state-detection recipe); markdown memory remains the
+> authoritative store. The failed daemon left a fresh 0-byte
+> `~/.hindsight/profiles/handsome_company_manager.lock`; port 9807
+> was probed (1.5s TimeoutError on connect) and confirmed not
+> listening, then the lock was removed safely. Pre-flight found no
+> `memories/*.lock`. Tri-state liveness: `agent.log` is fresh from
+> this run (0m), `errors.log` is current (~44m), `gateway.log` is
+> ~1084m (~18h) stale; per the tri-state rule this indicates a live
+> agent with a stale logging artifact, not a proven gateway-down
+> condition. Housekeeping structure check
+> (`scripts/verify_housekeeping_structure.py handsome_company_manager`)
+> returned exit 0 with 20 top-level date bullets all at sibling
+> indent level — no nesting regression.
 
 ---
 
@@ -73,6 +83,13 @@ trusting this trick.
 ## Archive housekeeping
 
 - Created: 2026-07-09 (cleanup cron).
+- 2026-07-27 — no-op archive (cutoff 2026-06-27). Dated active entries remain 2026-07-08 (19d) and 2026-07-20 (7d); no entries exceed the 30-day window. Undated current-state facts (Host / Hermes v0.15.1 / Agent Team / PM 铁律+陷阱 / PM cron) stay active. USER.md unchanged.
+  - Pre-flight: no stale `memories/*.lock` to clean. Tri-state liveness (`agent.log` fresh from this run at 0m, `errors.log` ~44m, `gateway.log` ~1084m / ~18h stale) confirms the agent path is alive — the stale gateway log is a logging artifact, not a gateway-down signal.
+  - Hindsight is enabled (`memory.provider: hindsight`) and installed in the venv (`C:/Users/Administrator/AppData/Local/hermes/hermes-agent/venv/Lib/site-packages/hindsight`). `hindsight_reflect.py handsome_company_manager` was run with a consolidation query using the venv python explicitly (`venv/Scripts/python.exe`); the embedded daemon timed out after 180s, exit code 1, total elapsed 195.9s. **Bare `python` returns exit 3** with `ERROR: HindsightEmbedded not importable: No module named 'hindsight'` because hindsight is venv-only — first documented in this run. Without the venv override, the script would short-circuit at import time and never start the daemon, masking the real HF-blocker signature.
+  - Time-scoped current-run signature at **2026-07-27 21:02:24,221**: `WARNING - hindsight_api.engine.llm_trace - LLM trace write failed for scope=verification: PostgreSQLBackend is not initialized. Call initialize() first.` Same single-line signature as 7-21/7-22/7-23/7-24/7-25/7-26; the daemon once again died before the cross-encoder step. The retained log still contains the historical HF cross-encoder cascade (`[WinError 10054]` / `Cannot send a request, as the client has been closed`); this run did not add new HF HEAD-retry lines. The blocker remains environmental.
+  - The failed daemon left a fresh 0-byte `~/.hindsight/profiles/handsome_company_manager.lock`; port 9807 was probed (1.5s TimeoutError) and confirmed NOT listening, then the lock was removed safely. No memory data was lost.
+  - `HF_TOKEN` is still present-but-commented-out (inactive) in `~/.hermes/profiles/handsome_company_manager/.env` — verified this run via the §HF_TOKEN state-detection recipe. Boss action STILL open (12th consecutive same-signature day; same trio as 7-13..7-26): choose one of (a) uncomment `HF_TOKEN` and set a real value, (b) switch Hindsight to `local_external`, or (c) use cloud mode. The previous actual Hindsight attempt was 2026-07-26 21:02 (log mtime); this run refreshed the log at 2026-07-27 21:02.
+  - Housekeeping structure verified by `scripts/verify_housekeeping_structure.py handsome_company_manager`: exit 0, 20 top-level date bullets all at sibling indent level, 76 sub-bullets — no nesting regression introduced by this run's edits.
 - 2026-07-26 — no-op archive (cutoff 2026-06-26). Dated active entries remain 2026-07-08 (18d) and 2026-07-20 (6d); no entries exceed the 30-day window. Undated current-state facts stay active. USER.md unchanged.
   - Pre-flight: no stale `memories/*.lock` files to clean. Tri-state liveness (`gateway.log` ~66h stale, `agent.log` fresh from this run, `errors.log` current) confirms the agent path is alive — the stale gateway log is a logging artifact, not a gateway-down signal.
   - Hindsight is enabled (`memory.provider: hindsight`) and installed. `hindsight_reflect.py handsome_company_manager` ran with a consolidation query; the embedded daemon timed out after 180s, exit code 1. Current-run signature at **2026-07-26 21:02:57**: `LLM trace write failed for scope=verification: PostgreSQLBackend is not initialized. Call initialize() first.` No mental model was created or updated.

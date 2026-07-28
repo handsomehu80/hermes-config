@@ -57,6 +57,15 @@ for d in out.iterdir():
 bihourly_dir = next(d for d, name in real_llm_dirs if "bihourly" in name.lower())
 ```
 
+**Substring-search gotcha (added 2026-07-28, PM #164).** The actual friendly-name is `pm-bihourly-status-report` — note **no hyphen** in "bihourly". A naïve search like `"bi-hourly" in name.lower()` (with hyphen) returns False. The recipe above uses `"bihourly"` (no hyphen) which matches both `pm-bihourly-status-report` and any future variant. Other oneplusn friendly-names that contain hyphens: `oneplusn-PM-task-polling`, `oneplusn-dev-task-polling`, `oneplusn-rev-task-polling`, `oneplusn-PM-config-backup`, `oneplusn-PM-memory-cleanup` — these are unambiguous because the hyphen is part of the naming convention; the only one that has historically been mis-typed is `bihourly`. When in doubt, dump all 5 dirs and their `# Cron Job:` headers first:
+
+```python
+for d, name in real_llm_dirs:
+    print(name, len(list(d.glob("*.md"))), "files")
+```
+
+This 2-line print-before-matching catches the substring choice visually before the recipe commits.
+
 ### Option 2 — Filter by max file size > 50KB
 
 Real LLM outputs are 50-100KB. Shadow marker files are 166-200B. This excludes polling dirs that contain shadow markers.

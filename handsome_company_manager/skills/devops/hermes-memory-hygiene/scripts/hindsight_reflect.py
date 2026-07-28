@@ -18,7 +18,11 @@ Exit codes:
   0  - reflect() ran (or bank was empty + we decided not to reflect)
   1  - daemon failed to start (environmental, see log)
   2  - missing API key in profile .env
-  3  - HindsightEmbedded not importable
+  3  - HindsightEmbedded not importable. On Windows named-profile installs
+       the runner auto-detects this and re-execs to the venv python
+       (<hermes-agent>/venv/Scripts/python.exe). If the re-exec also fails
+       (no venv python found, or the venv itself is broken), exit 3 is
+       returned with a hint pointing at the expected invocation.
 """
 from __future__ import annotations
 
@@ -88,6 +92,50 @@ def clear_stale_locks() -> int:
     return removed
 
 
+def find_venv_python() -> str | None:
+    """Locate the venv python that has `hindsight` installed.
+
+    On Windows named-profile installs, hindsight lives only in the venv at
+    `<hermes-agent>/venv/Lib/site-packages/hindsight/` — NOT in any system
+    site-packages. Bare `python` from PATH misses this and the import fails
+    with `No module named 'hindsight'`, masking the real HF-blocker signature.
+
+    Returns the absolute path to a different (venv) python interpreter if
+    found, else None. The returned path is suitable for `os.execv`.
+    """
+    candidates: list[Path] = []
+    exe = Path(sys.executable).resolve()
+
+    # 1. If we're already inside a venv, prefer that one (covers the case
+    #    where the user invoked a different venv python by mistake).
+    if exe.parent.name in ("Scripts", "bin"):
+        venv_root = exe.parent.parent
+        if venv_root.name == "venv":
+            candidates.append(venv_root / exe.name)
+
+    # 2. Standard install locations for the Hermes venv.
+    hermes_roots: list[Path] = []
+    local_app = os.environ.get("LOCALAPPDATA")
+    if local_app:
+        hermes_roots.append(Path(local_app) / "hermes" / "hermes-agent")
+    hermes_home = os.environ.get("HERMES_HOME")
+    if hermes_home:
+        hermes_roots.append(Path(hermes_home).parent / "hermes-agent")
+    hermes_roots.append(Path.home() / ".local" / "share" / "hermes" / "hermes-agent")
+    hermes_roots.append(Path("/usr/local/share/hermes/hermes-agent"))
+
+    for root in hermes_roots:
+        if sys.platform == "win32":
+            candidates.append(root / "venv" / "Scripts" / "python.exe")
+        else:
+            candidates.append(root / "venv" / "bin" / "python")
+
+    for cand in candidates:
+        if cand and cand.exists() and cand.resolve() != exe:
+            return str(cand)
+    return None
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("profile", help="Hermes profile name, e.g. handsome_company_manager")
@@ -111,7 +159,29 @@ def main() -> int:
     try:
         from hindsight.embedded import HindsightEmbedded
     except ImportError as e:
+        # Likely cause on Windows named-profile installs: hindsight lives only
+        # in the venv at <hermes-agent>/venv/Lib/site-packages/hindsight/, but
+        # `python` from PATH resolves to a system interpreter that doesn't have
+        # it. Try to find the venv python and re-exec to it; this preserves
+        # all env vars (including the HINDSIGHT_API_LLM_* overrides) and argv.
+        venv_py = find_venv_python()
+        if venv_py:
+            print(
+                f"hindsight not importable from {sys.executable}; "
+                f"re-exec'ing to {venv_py}",
+                file=sys.stderr,
+            )
+            os.execv(venv_py, [venv_py, *sys.argv])
+            # os.execv does not return on success.
         print(f"ERROR: HindsightEmbedded not importable: {e}", file=sys.stderr)
+        print(
+            "  Hint: on Windows named-profile installs, hindsight lives only in the venv.",
+            file=sys.stderr,
+        )
+        print(
+            "  Try: <hermes-agent>/venv/Scripts/python.exe scripts/hindsight_reflect.py <profile>",
+            file=sys.stderr,
+        )
         return 3
 
     print(f"starting daemon for profile={args.profile!r} provider=minimax model={llm_model}")

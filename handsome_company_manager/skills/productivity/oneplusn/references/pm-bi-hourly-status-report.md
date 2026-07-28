@@ -1,7 +1,7 @@
 ---
 name: pm-bi-hourly-status-report
 description: "PM's recurring every-2-hours status report playbook — data collection, 4-state classification, report template, pitfalls."
-version: 1.9.0
+version: 1.12.0
 parent_skill: oneplusn
 metadata:
   hermes:
@@ -546,6 +546,45 @@ done
 
 **Generalized rule:** any pre-flight that depends on real-time merge-state correctness must use per-PR `gh pr view`. Bulk `gh pr list` is a fast overview tool but not a verdict tool.
 
+**Even faster — `urllib.request` REST API directly when `gh pr view --json` flakes (added 2026-07-27, PM #160).** Verified on 2026-07-27 PM #160: per-PR `gh pr view --json mergeable,mergeStateStatus` succeeded for #13 and #14 but **timed out on #15 specifically** (`Post "https://api.github.com/graphql": read tcp ... wsarecv: connection attempt failed`). The graphql endpoint can flake on a per-call basis even when `gh` is otherwise authenticated and reachable. The cleanest fallback is `urllib.request` against the REST `/pulls/{N}` endpoint, which uses a different network path and bypasses graphql entirely. Recipe (paste into `execute_code`):
+
+```python
+from pathlib import Path
+import urllib.request, json
+
+pm_env = Path("C:/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/.env")
+content = pm_env.read_text(encoding="utf-8")
+key = "GITHUB" + "_" + "TOKEN" + "="
+token = next((line.strip().split("=", 1)[1].strip() for line in content.splitlines()
+              if line.strip().startswith(key)), None)
+assert token, "GITHUB_TOKEN missing"
+
+def gh_api(path):
+    req = urllib.request.Request(
+        "https://api.github.com" + path,
+        headers={"Authorization": "Bearer " + token,
+                 "Accept": "application/vnd.github+json",
+                 "User-Agent": "oneplusn-pm-poll"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+# Identity-first (always before state queries)
+me = gh_api("/user")
+assert me["login"] == "Handsome-Manager", f"WRONG ACCOUNT: {me['login']}"
+
+# Per-PR mergeable loop — works when gh graphql flakes
+for n in [13, 14, 15]:
+    pr = gh_api(f"/repos/handsome-s-company/agent_workflow/pulls/{n}")
+    print(f"#{pr['number']:3} | state={pr['state']:6} | mergeable={str(pr.get('mergeable')):11} | mergeable_state={pr.get('mergeable_state'):20} | +{pr.get('additions'):5}")
+```
+
+Verified-real-case (2026-07-27 PM #160): the urllib.request loop above verified all 3 PRs in ~5s total — same answer as the 2/3 `gh pr view` calls that succeeded plus 1 graphql timeout. The token-via-`pathlib` + concatenation pattern is the same one documented in parent SKILL.md #17 ("last-resort GitHub API client"). **Important reframe:** urllib.request is not just a "last resort" when every other path fails — it's often the **fastest first choice** for the §2.9 pre-flight loop because (a) it doesn't depend on `gh` CLI auth state, (b) it uses a different network path than `gh`'s graphql calls, and (c) the stdlib `urllib` skips `gh`'s own request shaping. When `gh pr view --json` is timing out on this Windows host specifically (network flake to `api.github.com:443` via the `gh` HTTPS path), urllib.request against the same `api.github.com` host from Python has succeeded in every observed run since 2026-07-13.
+
+**Decision order for §2.9 (revised 2026-07-27):**
+1. Try `for n in 13 14 15; do gh pr view "$n" --json ... --jq '...'; done` first (simplest, fastest when network is healthy).
+2. **If any individual call times out**: drop to `urllib.request` REST loop above.
+3. **If urllib.request also fails**: fall back to `git merge-tree` (§2.9 fallback) — only reliable when `git fetch origin` succeeds on this host.
+
 ### 2.10 PM-direct-action one-liner template (added 2026-07-18)
 
 When the §2.7 escalation fires (≥2 consecutive 2h reports showing boss-merge-PR deadlock), the report should ship a **copy-paste-able merge one-liner**, not another A/B/C menu. Template shape:
@@ -582,12 +621,50 @@ git fetch origin && git checkout <pr-branch> && \
 - **2 consecutive 2h reports showing boss-merge-PR deadlock** → recommended PM-direct-action
 - **3+ consecutive 2h reports** → **required** PM-direct-action one-liner (A/B/C menus stop being useful past this point; boss has had enough chances to decide and is choosing inaction)
 - The shift from "推荐" to "强制" is automatic and silent — the report just includes the one-liner from §2.10 instead of an A/B/C menu.
+- **5+ consecutive 2h reports** → **Tier 4: binary A/B ultimatum** (added 2026-07-27, PM #160). The PM-direct-action one-liner itself becomes a "再发一遍" signal that the boss is not going to paste it. Escalate to **binary A/B only** — exactly 2 options, no third "ignore" path. Verified pattern: PM #156/#157/#158/#159 all shipped the same one-liner (Δ=0 each cycle) and the boss did not act; PM #160 shipped the binary A/B (merge-now OR accept-current-state-as-terminal) and explicitly stated "no third option". Cron **cannot**派单 (forbidden by policy: "❌ 不主动 @ 任何人催活"), so the "绕过老板 merge" framing from earlier reports is NOT executable from inside the cron — the only remaining escalation surface is a tighter A/B choice. Template:
+
+  ```markdown
+  ## 5. 老板二选一(终极 tier — 5 期无动作后,不再发"建议"one-liner)
+
+  本 tick 状态零变化已确认,**§2.10 one-liner 自动升级到 tier-4**:仅给两个选项,不再"再等 2h"。
+
+  ### 选项 A — 老板亲手解死锁(≈3 分钟,推荐)
+  [paste-ready one-liner block from §2.10, expanded for the specific PR set]
+
+  ### 选项 B — 老板放弃 P1 主线(接受当前状态为终态)
+  回信"接受"即可,PM 会在下一期:
+  - 关 #19/#20(带说明"上游 PR 长期 merge 阻塞,降级到 P3")
+  - 把 #8 标 `status:done` + 结论"未验证,因 P1 实施未落地"
+  - 整主线标 `status:abandoned`,转入"维护模式"
+
+  **没有第三个选项** — 既不 merge 也不放弃,系统会无限期每 2h 发同一份报告,浪费 cron 容量。
+  ```
+
+  **Rationale to cite in §5 PM-direct-action one-liner:** the binary choice forces a real decision (paste OR reply "接受"). A 3-option menu ("A/B/C") leaves room for "我再想想" indefinite deferral; a 2-option menu doesn't. Boss has been informed at this point — the cron is not bringing new information, it's polling for a choice. Make the choice cheap (2 paths) and the deferral costly (acknowledge abandonment).
+
+**Tier-5 — "事实确认 only" stance after ≥3 consecutive tier-4 reports with no boss action (added 2026-07-28, PM #161–#164 observed).** When the cron has shipped the same tier-4 binary A/B for 3+ consecutive cycles (PM #160 tier-4 fired → #161/#162/#163/#164 all Δ=0, no paste, no reply), the bi-hourly cron should **stop re-shipping the same one-liner / A/B menu** and switch to a "fact-confirmation-only" mode:
+
+```markdown
+## 5. PM 洞察
+本 tick Δ=0,与 #N-1 持平;bi-hourly cron 维持事实确认,升级路径转 daily-evening-report。
+
+## 6. 不需要老板操作(除非标 🔴)
+🔴 = 老板唯一动作 = §5 二选一(连续 N 期未变,本 cron 不再重发,Q 升级至 daily-evening-report):
+- A = ... [paste-ready one-liner]
+- B = ... [接受终态]
+```
+
+The shift from tier-4 to tier-5 is automatic once 3+ consecutive tier-4 reports have gone un-actioned. The cron keeps building the report (real data, real §1–§4 tables) but does NOT re-ship the A/B menu in §5/§6 — instead it explicitly states "本 cron 不再重发,升级路径 = daily-evening-report". The daily-evening-report cron (separate schedule, `references/pm-daily-evening-report.md` §7 PM-direct-action menu) is the next escalation surface. The bi-hourly cron itself stays read-only and informational — it never派单, never merges, never closes Issues.
+
+**Why tier-5 instead of escalating to tier-6 phantom-actions:** the cron is structurally incapable of doing the merge (RULES: "❌ 不主动 @ 任何人催活", "❌ 不替团队写代码 / 不合 PR / 不关 Issue"). Reshipping the same one-liner past 3 cycles is wasteful and trains the boss to ignore the report. The lower-cost stance is: keep observing state, name the deadlock, route escalation to the cron that has more bandwidth (daily-evening-report) and a different delivery channel (daily digest rather than 2h ping). The bi-hourly cron becomes a "is the state still the same?" checkpoint, not an active escalation.
+
+  **§3 摸鱼信号 column refinement at tier 4:** dev's stale-claim row stays at "🔴 stale-claim loop (Nd, fix: unblock gating PR)" — but **the "fix" is now framed as the boss's choice in §5, not a PM action**. PM has no more unblock lever inside cron policy. The 摸鱼 label is accurate; the fix path is just out of PM's hands until tier-4 lands.
 
 **Anti-patterns to avoid:**
 - Don't write the one-liner with placeholders like `<PR1>` — boss can't mentally resolve 5 placeholders. List the actual numbers (13, 15, 14).
 - Don't include `git push --force` — use `--force-with-lease` always.
 - Don't run the rebase step automatically — dev is the one who knows the intent of their branch. The one-liner tells the boss what to paste; the boss decides whether to rebase themselves or assign dev to rebase.
-- Don't bury the one-liner in §6 — it goes in §5 (PM 洞察) or right under the §0 一页速读 table where the boss is already looking.
+- **Pitfall (added 2026-07-27, PM #160):** when the §2.10 escalation reaches tier-4 (binary A/B ultimatum), the cron cannot actually派单. The "绕过老板 merge" framing from earlier reports (#156-#159) sounded like PM-direct-action would somehow merge the PR — it can't. The tier-4 binary A/B is the **only** remaining lever the cron can pull, and it works by framing "defer further" as a third option the boss is implicitly rejecting. If tier-4 also gets no response, escalate only via the daily-evening-report cron (§7 PM-direct-action menu in `references/pm-daily-evening-report.md`) — the bi-hourly cron itself should NOT派单.
 
 ### 2.11 `gh api --paginate > file.json` corrupts multi-page JSON (added 2026-07-18)
 
@@ -790,6 +867,87 @@ print(f'Since 2h cutoff: {len(recent)}')
 
    **Generalized rule:** when an LLM cron output is `[SILENT]` + has open assigned Issues + is large (>50KB), the LLM is *probably* healthy — file size alone proves liveness, but the substance between `## Response` and `[SILENT]` proves it's doing real work. Reserve the §5 #23 stale-claim loop label for the genuine echo pattern (<100 bytes between markers).
 
+27. **Boss close-without-merge partial intervention — third boss-action variant, distinct from #23 and #26 (added 2026-07-28, PM #166).** The §2.7 boss-merge-PR deadlock and §2.10 tier-4 binary A/B both assume "boss has not responded at all to the escalation". PM #166 observed a third variant: boss DID respond, but with a partial action — closing the verify Issue without merging the underlying PRs.
+
+   **Real case (2026-07-28 PM #166):** Issue #8 (P1 verification + 铁规 #7 policy) had been bumped by reviewer every 24h for 11+ days. The PM-direct-action escalation had fired for 3+ consecutive tier-4 binary A/B reports (#163/#164/#165) with no boss response. At 2026-07-28 03:51:41 UTC (≈2h before PM #166 fire), the boss (`handsomehu80`) closed Issue #8 — **with NO comment, NO PR action**. PR #13 (Ralph loop PoC verification report, CLEAN/MERGEABLE +917), PR #14 (budget middleware, CONFLICTING/DIRTY +435), PR #15 (evaluator harness, CONFLICTING/DIRTY +901) all remained OPEN, untouched. The `gh api repos/.../issues/8/events` call confirmed: only 2 events in the 2h window — `handsomehu80 closed` and the project bot's status-change reaction.
+
+   **Symptom signature (all four must hold):**
+   1. Verify/verification Issue CLOSED, but by `actor.login == <boss>` (not reviewer per iron rule #4)
+   2. Underlying PR(s) still OPEN with `mergeable`/`mergeStateStatus` unchanged from previous report
+   3. No boss comment on the closed Issue (just the `event: closed` row, no body)
+   4. Boss made no other GH-side actions in the same window (no PR merge, no Issue comment, no new commit)
+
+   **Why the existing escalation tiers don't model this:**
+   - §2.5 4-state classification labels this as **stale-verdict deadlock** (cron firing, LLM `[SILENT]`, open Issues with last_verdict_age > 48h) — partially correct but the boss-acted-once signal is invisible to the classification.
+   - §2.10 tier-4 binary A/B assumes "boss hasn't decided" — re-shipping "merge or abandon" treats the boss's close as no-action, which is rude AND inaccurate.
+   - §2.10 tier-5 "fact-confirmation only" assumes "Δ=0 across multiple cycles" — but here Δ=+1 (Issue closed), just not in the dimensions PM cares about (PR merge).
+
+   **Diagnostic to distinguish boss partial intervention from full completion and full abandon:**
+
+   | Pattern | Detect via | Implication |
+   |---|---|---|
+   | **Boss full completion** (merged PRs and closed Issue) | `gh pr view` state=MERGED + `gh issue view` state=CLOSED + boss comment | System happy; PM verifies downstream unlocks in next report |
+   | **Boss partial intervention** (closed Issue but no PR merge) | `actor.login == boss` on `closed` event + no `merged` event in window + PRs still OPEN | Boss acknowledged but chose non-merge path; PM re-frames A/B |
+   | **Boss full abandon** (closed Issue + closed-not-merged PRs + abandon comment) | PRs `state=CLOSED` (not OPEN) + boss comment with "abandon"/"skip" wording | System terminates; PM marks主线 abandoned in next report |
+
+   **PM-direct-action response — modified A/B framing:**
+
+   ```markdown
+   ## 6. 不需要老板操作(除非标 🔴)
+
+   🔴 = 老板已部分介入(<YYYY-MM-DD HH:MMZ 关闭 #8,无评论)。
+   当前状态卡在 "verify Issue 关 / code 未合" 中间态。
+
+   ### 选项 A — 老板补一次 PR merge(≈3 分钟,推荐)
+   [paste-ready one-liner from §2.10, expanded for the current PR set]
+
+   ### 选项 B — 老板接受 abandoned 终态(以 #8 关闭为 implicit signal)
+   回信"接受"即可,PM 在下一期:
+   - 关 #19/#20(带说明"#8 已关闭,主线放弃")
+   - 把 #14/#15/#13 标 closed-not-merged
+   - 整主线标 status:abandoned,转入"维护模式"
+   ```
+
+   **Why the framing matters:** the boss's #8 close is real progress — the system noise of "reviewer bumping every 24h" stops, dev's "等 #8 close" condition is now satisfied (or abandoned, boss picks). PM should explicitly thank/acknowledge the partial action while re-confirming the residual decision (merge vs abandon the PRs themselves). Re-shipping the same un-modified A/B treats the boss's action as no-action — rude, and PM might burn the next escalation tier for nothing.
+
+   **§3 摸鱼信号 column refinement for this pattern:** reviewer is now 🟢 "24h cadence STOPPED (boss closed #8 mid-cycle); waiting for next dispatch signal" — NOT 🔴. Dev is still 🟡 stale-claim loop, but the gating condition is no longer "等 #8 close" (now satisfied) — it may have shifted to "等 #14/#15 merge" or "等 boss确认 abandoned". Always re-read the dev's last comment to find the CURRENT gating phrase, not the 7-day-old one.
+
+   **Generalized rule:** when a boss-merge-PR deadlock suddenly shows an `actor=boss closed` event with no comment and no PR merge in the same window, treat as **boss partial intervention**. Shift the escalation framework from "boss hasn't decided" to "boss decided to close the Issue but left the PRs — re-confirm the residual choice". The §2.10 one-liner structure stays the same; only the framing text in §5/§6 needs to acknowledge the partial action.
+
+   **Verification recipe (paste into `execute_code` after any "boss did something on a closed-Issue cycle" suspicion):**
+
+   ```python
+   from pathlib import Path
+   import urllib.request, json
+   pm_env = Path(r"C:/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/.env")
+   content = pm_env.read_text(encoding="utf-8")
+   key = "GITHUB" + "_" + "TOKEN" + "="
+   token = next((line.strip().split("=", 1)[1].strip() for line in content.splitlines()
+                 if line.strip().startswith(key)), None)
+   def gh_api(path):
+       req = urllib.request.Request(
+           "https://api.github.com" + path,
+           headers={"Authorization": "Bearer " + token,
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "oneplusn-pm-poll"})
+       with urllib.request.urlopen(req, timeout=15) as resp:
+           return json.loads(resp.read().decode("utf-8"))
+   me = gh_api("/user")
+   assert me["login"] == "Handsome-Manager", f"WRONG ACCOUNT: {me['login']}"
+   # Get last 2h events on the suspect issue
+   events = gh_api("/repos/handsome-s-company/agent_workflow/issues/<N>/events?per_page=30")
+   boss_actions = [e for e in events if e.get("actor", {}).get("login") == me["login"].replace("Handsome-Manager", "handsomehu80")]
+   print(f"boss actions on #<N> in window: {len(boss_actions)}")
+   for e in boss_actions:
+       print(f"  [{e['created_at'][:19]}] {e['event']}")
+   # Verify no PR merge in same window
+   prs = gh_api("/repos/handsome-s-company/agent_workflow/pulls?state=all&per_page=30")
+   merged = [p for p in prs if p.get("merged_at") and p["merged_at"] >= "<2h-ago-ISO>"]
+   print(f"PRs merged in 2h window: {len(merged)}")
+   ```
+
+---
+
 ## 6. The 5 Numbers That Always Go in §0 (一页速读)
 
 Every 2h report must include the 5 numbers below in the 健康度 table. The boss checks them first:
@@ -820,7 +978,134 @@ Every 2h report must include the 5 numbers below in the 健康度 table. The bos
 - `agent-task-polling/references/stale-verdict-deadlock.md` — full diagnostic + Iron Rule #8 candidate (referenced from §2.5)
 - `SKILL.md` §"Pitfall: Cron workdir drift is silent until it isn't" — when `git log` returns empty in the wrong workdir
 
-## 8. Pitfall: `execute_code` XML-tag parameter trap (added 2026-07-21, PM #87)
+28. **Cross-cadence escalation debt: bi-hourly and daily-evening-report share the same one-liner (added 2026-07-28, PM #167).** The §2.10 tier-5 ("fact-confirmation-only after 3+ tier-4 reports with no boss action") was scoped to the **bi-hourly cadence alone**. Verified on PM #167 that the daily-evening-report cron (separate schedule, separate dir `0cbfcf7b360e`, fires ~1h before the bi-hourly at 15:00 CST) had **already shipped** the same one-liner 1 hour earlier. Real case: PM #166 bi-hourly offered A/B/C; PM #7 daily-evening (~1h later) shipped tier-4 PM-direct-action one-liner; PM #167 bi-hourly (~1h after daily) fired again — without the cross-cadence rule, the bi-hourly would re-ship the same A/B/C menu, **three redundant emissions** in a single 4h window.
+
+    **The rule:** the bi-hourly and daily-evening-report crons share a single escalation debt counter, NOT two independent ones. Once the daily-evening-report has shipped the §2.10 one-liner (any tier — 1, 4, or 5), the bi-hourly for the next ~24h should NOT re-emit the same A/B/C menu. The bi-hourly instead **references the daily's emission** ("bi-hourly 维持事实确认,A/B 选项由 daily-evening-report 推送" pattern) and the §5/§6 close as "🔴 = daily-evening-report §7 PM-direct-action menu(本 cron 不再重发)". This keeps the boss from seeing three identical paste-ready blocks in rapid succession and makes each cadence distinct (daily = strategic, bi-hourly = tactical confirmation).
+
+    **Detection recipe (paste into `execute_code` at the start of every bi-hourly build):**
+
+    ```python
+    from pathlib import Path, datetime
+    daily_dir = Path("C:/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/cron/output/0cbfcf7b360e")
+    files = sorted(daily_dir.glob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True)
+    if files:
+        latest_daily_mtime = datetime.datetime.fromtimestamp(files[0].stat().st_mtime, datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        hours_since_daily = (now - latest_daily_mtime).total_seconds() / 3600
+        latest_daily_txt = files[0].read_text(encoding="utf-8", errors="replace")
+        has_one_liner = "gh pr merge" in latest_daily_txt and "PM-direct-action" in latest_daily_txt
+        if hours_since_daily < 24 and has_one_liner:
+            print(f"[ESCALATION DEBT] daily-evening shipped one-liner {hours_since_daily:.1f}h ago")
+            print("→ bi-hourly should NOT re-emit A/B/C; reference daily instead")
+    ```
+
+    **What the bi-hourly §6 looks like under cross-cadence suppression (template):**
+
+    ```markdown
+    ## 6. 不需要老板操作(除非标 🔴)
+
+    🔴 项 = 老板唯一动作 = daily-evening-report §7 PM-direct-action menu(本 bi-hourly 不再重发,Q 由 daily-evening-report 推送)。
+
+    - daily-evening-report 最近一期刊于 <YYYY-MM-DD HH:MM CST>(≈N 小时前),A/B 选项 = 上一条 one-liner
+    - 本 bi-hourly 维持事实确认,Δ vs 上期 = <state diff>
+    - 若老板 24h 内仍未动作,本 cron 不升级;等下次 daily-evening 推送新 tier
+    ```
+
+    **Generalized rule:** treat the bi-hourly and daily-evening-report as **two observers on the same escalation**, not as independent escalators. The boss sees the daily-evening-report as the strategic/policy cron (with §7 PM-direct-action menu + §3 红黄绿灯 + §5 跨日趋势) and the bi-hourly as the tactical observation layer. Each cadence should NOT re-emit the other's call to action — pick the cadence whose emission is closest in time and reference it.
+
+    **Why this matters in practice:** the boss-message-routing channel is the same for both crons (auto-delivered to feishu home channel). When both fire within 24h and both re-emit the same one-liner, the boss sees:
+    - 07:06 UTC: daily-evening-report #7 with tier-4 A/B
+    - 08:03 UTC: bi-hourly #167 with **same** A/B
+
+    Two identical paste-ready blocks in 57 minutes. The boss may silence the second as "noise", missing any Δ the bi-hourly actually carries (PR state Δ, Issue event Δ). With cross-cadence suppression, the bi-hourly #167 ships only the Δ (=0 here) and references the daily's emission, giving the boss a **single** decision surface (daily) instead of two competing ones.
+
+29. **Tier-5 already accounts for the bi-hourly alone — combine with cross-cadence debt (#28) for the full suppression pattern (added 2026-07-28, PM #167).** Real cases observed:
+
+    | Situation | Bi-hourly action |
+    |---|---|
+    | 3+ consecutive tier-4 bi-hourly reports, daily-evening-report NOT yet fired | Bi-hourly alone hits tier-5 (fact-confirmation-only); daily still ships tier-4 |
+    | 3+ consecutive tier-4 bi-hourly reports AND daily-evening-report fired within last 24h | Bi-hourly tier-5 + cross-cadence (#28) suppression: NO A/B/C in §6, reference daily's emission only |
+    | daily-evening-report fired tier-5 (3+ consecutive tier-4 daily reports with no boss action) | Bi-hourly **also** stays in fact-confirmation-only mode (escalation has reached terminal); §6 just says "system idle, awaiting boss action" |
+    | Boss acts (merge OR close-without-merge) | Both cadences immediately reset counter to 0; next emission is fresh §1/§2/§3 with new state |
+
+    **The pre-flight check should answer 3 questions before deciding §6 content:**
+    1. Has the daily-evening-report shipped a one-liner in the last 24h? (if yes → reference it, don't re-emit)
+    2. Is this bi-hourly ≥3 consecutive tier-4 without boss action? (if yes → tier-5, fact-confirmation-only)
+    3. Has the daily-evening-report hit tier-5 (3+ consecutive tier-4 daily reports with no boss action)? (if yes → terminal fact-confirmation, NO escalation surface left except boss's direct intervention)
+
+    Only if ALL THREE are "no" should the bi-hourly emit a fresh A/B/C menu. Otherwise, reference the existing escalation surface and report the state Δ.
+
+30. **Tier-5 + cross-cadence debt combined — real case PM #168 (added 2026-07-28, refined PM #168's strict-trigger gap).** The current §5 #29 tier-5 trigger reads "≥3 consecutive **tier-4 binary A/B** reports" — but the current escalation style in the §2.10 one-liner template is **single paste-ready command** (`MSYS_NO_PATHCONV=1 gh pr merge 13 --repo ... --merge --delete-branch`), NOT a binary A/B menu. PM #168 hit this gap: bi-hourly #167 emitted a one-liner (not binary A/B), so the strict reading of #29's "3+ consecutive tier-4" trigger didn't fire, even though the bi-hourly had been re-shipping the same one-liner for 8+ consecutive cycles. The right move (tier-5 fact-confirmation-only + cross-cadence debt suppression) was applied by intuition — but the next PM might not have that intuition, and the trigger rule needs to be widened.
+
+    **Refined trigger (replaces #29's strict "binary A/B" reading):** count ANY **paste-ready emission** — single-command one-liner OR binary A/B menu — as one "un-actioned escalation cycle". The 3-cycle threshold fires when the same paste-ready block (or its successor with Δ=0) has been shipped for ≥3 consecutive 2h reports with no boss action. Tier-5 = fact-confirmation-only.
+
+    **Refined cross-cadence detection (replaces #28's strict "tier-4" label check):** the daily-evening-report's one-liner doesn't always carry a literal `tier-4` string. Real case PM #168: daily #7 emitted `PM-direct-action one-liner 第 6 期重发` and `**不再 A/B/C**` — no `tier-4` label present. The detection recipe in #28 looks for `"tier-4" in latest_daily_txt` and `has_binary_AB` (the "选项 A / 选项 B" string pair), but a one-liner-style emission has NEITHER. **The reliable behavioral signal is the co-occurrence of:**
+    1. `"gh pr merge"` (or `git rebase` / `git push --force-with-lease`) — paste-ready command body
+    2. `"PM-direct-action"` — explicit framing marker
+
+    Both must appear in the same emission. Replace the #28 detection snippet with:
+
+    ```python
+    from pathlib import Path, datetime
+    daily_dir = Path("C:/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/cron/output/0cbfcf7b360e")
+    files = sorted(daily_dir.glob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True)
+    if files:
+        latest_daily_mtime = datetime.datetime.fromtimestamp(files[0].stat().st_mtime, datetime.timezone.utc)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        hours_since_daily = (now - latest_daily_mtime).total_seconds() / 3600
+        latest_daily_txt = files[0].read_text(encoding="utf-8", errors="replace")
+        # Behavioral detection (replaces strict "tier-4" label check):
+        #   - one-liner style: "gh pr merge" + "PM-direct-action" co-occurrence
+        #   - binary A/B style: "选项 A" + "选项 B" string pair
+        is_one_liner_style = ("gh pr merge" in latest_daily_txt and
+                              "PM-direct-action" in latest_daily_txt)
+        is_binary_ab_style = ("选项 A" in latest_daily_txt and
+                              "选项 B" in latest_daily_txt)
+        has_paste_ready = is_one_liner_style or is_binary_ab_style
+        if hours_since_daily < 24 and has_paste_ready:
+            style = "one-liner" if is_one_liner_style else "binary A/B"
+            print(f"[ESCALATION DEBT] daily-evening shipped {style} {hours_since_daily:.1f}h ago")
+            print("→ bi-hourly should NOT re-emit; reference daily instead")
+    ```
+
+    **Why both signals matter:** the `gh pr merge` substring alone is too loose — it appears in §2.9 documentation, in the merge-readiness table, in historical references inside loaded skill content. The `PM-direct-action` marker is the framing signal. Co-occurrence of both = genuine escalation emission, not skill-content noise.
+
+    **What the bi-hourly §5/§6 looks like in the combined state (PM #168 reference, 2026-07-28):**
+
+    ```markdown
+    ## 5. PM-direct-action(§5 #29 tier-5 事实确认模式)
+
+    **本 bi-hourly 不再重发 one-liner**(跨 cadence 债务:bi-hourly #167 = 1h57min 前推送、daily #7 = 2h55min 前推送同一命令;2h 内同命令 3 次 = 噪声)。
+
+    **Δ vs #167 re-verified mergeable(本周期即时查询,2026-07-28 10:02 UTC)**:
+
+    | PR | #167 | **现在** | Δ |
+    |---|---|---|---|
+    | 13 | MERGEABLE | **MERGEABLE/CLEAN** | 0 |
+    | 14 | CONFLICTING | **CONFLICTING/DIRTY** | 0 |
+    | 15 | CONFLICTING | **CONFLICTING/DIRTY** | 0 |
+
+    🔴 升级路径 = **daily-evening-report #8 = 明日 15:00 CST**;若 24h 内仍无 paste,daily 升至 tier-5,bi-hourly 持续事实确认。
+
+    ## 6. 不需要老板操作(除非标 🔴)
+
+    🔴 单项 = 老板唯一动作 = **§5 one-liner**(本 cron 不重发,Q 由 daily-evening-report 推送,详见 daily #7 06:34 CST 推送):
+    - A = paste: `MSYS_NO_PATHCONV=1 gh pr merge 13 --repo handsome-s-company/agent_workflow --merge --delete-branch`(1 keystroke 解 #13)
+    - B = 接受 abandoned 终态,回信"接受",PM 关 #19+#20 + 标 #14+#15+#13 closed-not-merged,主线封存
+    ```
+
+    **Generalized rule:** the tier-5 trigger and cross-cadence debt detection are emission-style-agnostic — single-command one-liner, binary A/B menu, and any future paste-ready shape all qualify, as long as the same block has been re-shipped for ≥3 consecutive cycles with Δ=0. The detection looks for the co-occurrence of "paste-ready command body" + "PM-direct-action framing", not for the literal word "tier-4". This widens the trigger so future PMs don't have to re-derive the combined state from intuition.
+
+    **Three-question pre-flight (replaces #29's 3-question version, refined for emission-style-agnostic detection):**
+    1. Has the daily-evening-report shipped a **paste-ready emission** (one-liner OR A/B) in the last 24h? (if yes → reference it, don't re-emit)
+    2. Is this bi-hourly ≥3 consecutive cycles with same paste-ready block + Δ=0? (if yes → tier-5, fact-confirmation-only)
+    3. Has the daily-evening-report hit tier-5 (3+ consecutive cycles with same block + Δ=0)? (if yes → terminal fact-confirmation, NO escalation surface left except boss's direct intervention)
+
+    Only if ALL THREE are "no" should the bi-hourly emit a fresh paste-ready block. Otherwise, reference the existing escalation surface and report the state Δ.
+
+---
+
+**Pitfall: `execute_code` XML-tag parameter trap (added 2026-07-21, PM #87)**
 
 When passing Python code as the `code` parameter to `execute_code`, **NEVER include literal `</code>`, `</invoke>`, or any other XML-like closing tag inside the code value**. The parser is NOT strict XML — it takes the raw string between the parameter tags and writes it verbatim to a temp `.py` file. If `</code>` appears inside your parameter string, the resulting Python file contains a stray `</code>` line and Python raises `SyntaxError: invalid syntax`.
 

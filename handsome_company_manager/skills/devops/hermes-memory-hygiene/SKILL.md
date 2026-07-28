@@ -141,6 +141,20 @@ hindsight_enabled = cfg.get("memory", {}).get("provider") == "hindsight"
 
 ### Try
 ```python
+# Pre-flight: confirm we're running under the venv python that has hindsight installed.
+# Bare `python` from PATH will return exit 3 ("No module named 'hindsight'") on
+# Windows named-profile installs because hindsight lives only in the venv at
+# <hermes-agent>/venv/Lib/site-packages/hindsight/. Detect this BEFORE doing
+# any other work — if hindsight isn't importable from sys.executable, the import
+# failure masks the real HF-blocker signature (cross-encoder / pg0 / port).
+import sys, importlib.util
+if not importlib.util.find_spec("hindsight"):
+    print(f"ERROR: hindsight not importable from sys.executable={sys.executable}", file=sys.stderr)
+    print("  On Windows named-profile installs, hindsight lives only in the venv.", file=sys.stderr)
+    print("  Re-run with the venv python:", file=sys.stderr)
+    print("    <hermes-agent>/venv/Scripts/python.exe scripts/hindsight_reflect.py <profile>", file=sys.stderr)
+    sys.exit(3)
+
 import os
 from pathlib import Path
 
@@ -188,6 +202,16 @@ he.close()
 
 ### Pitfalls
 - **`openai_compatible` is NOT a valid `llm_provider`** in Hindsight's daemon, even though the plugin config may list it. The valid set is: `openai, groq, ollama, ollama-cloud, gemini, anthropic, lmstudio, llamacpp, vertexai, openai-codex, claude-code, mock, none, minimax, deepseek, litellm, litellmrouter, bedrock, volcano, openrouter, requesty, zai, opencode-go, atlas, fireworks, nous`. For `MiniMax-M3` at `api.minimaxi.com/v1` use `minimax` + `llm_base_url=…/v1`. The fastest confirmation is the previous-run log at `~/.hindsight/profiles/<profile>.log` — search for `Invalid LLM provider`.
+- **`hindsight` lives ONLY in the Hermes venv on Windows named-profile installs** (learned 2026-07-27, PM cron run). The package is at `<hermes-agent>/venv/Lib/site-packages/hindsight/`, NOT in any system site-packages. Bare `python` from PATH returns exit 3 with `ERROR: HindsightEmbedded not importable: No module named 'hindsight'` — which **short-circuits BEFORE the daemon starts and masks the real HF-blocker signature** (cross-encoder / pg0 / port). If you see exit 3, first check `sys.executable` — if it doesn't end in `venv/`, you're running the wrong interpreter. **Always invoke with the venv python explicitly:**
+  ```bash
+  # Windows (git-bash / MSYS):
+  "$LOCALAPPDATA/hermes/hermes-agent/venv/Scripts/python.exe" scripts/hindsight_reflect.py <profile>
+  # Or absolute path:
+  "C:/Users/<user>/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe" scripts/hindsight_reflect.py <profile>
+  # Linux/macOS:
+  "$HOME/.local/share/hermes/hermes-agent/venv/bin/python" scripts/hindsight_reflect.py <profile>
+  ```
+  The `scripts/hindsight_reflect.py` runner now auto-detects this and re-execs to the venv python when found (look for `re-exec'ing to <venv python>` in stderr). If the re-exec fails too, the venv itself may be broken — re-install with `uv pip install --python <venv> hindsight-all`.
 - **Missing `~/.hermes/hindsight/config.json` is NOT a failure signal.** It is one of several config paths; the Python constructor reads provider/model/key/api_base from kwargs + env vars (`HINDSIGHT_API_LLM_*`). If you see `config.json` absent on a freshly-migrated profile, do NOT panic — the daemon still tries to start. The actual failure modes are the same regardless: cross-encoder download, embedded pg0 init, env vars. The `config.json` only matters when the daemon's defaults need to differ from your constructor kwargs; if you're passing everything explicitly, the json file is redundant.
 - **Stale `.lock` files** in `~/.hindsight/profiles/` block daemon start. Remove them before retrying. (Distinct from `~/.hermes/profiles/<profile>/memories/*.lock` — see Pre-flight housekeeping §1.)
 - **A failed daemon attempt can leave a fresh 0-byte lock too.** Do post-attempt cleanup instead of waiting for the next cron: first probe the profile's configured Hindsight port (default embedded port is often `9807`). Only when the port is not listening and the lock is 0 bytes should you remove it. Never delete a non-empty lock or a lock belonging to a live listener. Record the port verdict and removal in housekeeping.
@@ -254,8 +278,17 @@ History from this skill's housekeeping: the 2026-07-11 .. 2026-07-17 entries all
 ### Quick re-run
 
 ```bash
-python scripts/hindsight_reflect.py <profile>            # uses defaults
-python scripts/hindsight_reflect.py <profile> --query "Reorganize by topic"
+# Windows named-profile installs — use the venv python explicitly (hindsight
+# lives only in <hermes-agent>/venv/Lib/site-packages/hindsight/):
+"$LOCALAPPDATA/hermes/hermes-agent/venv/Scripts/python.exe" scripts/hindsight_reflect.py <profile>
+"$LOCALAPPDATA/hermes/hermes-agent/venv/Scripts/python.exe" scripts/hindsight_reflect.py <profile> --query "Reorganize by topic"
+
+# Linux/macOS:
+"$HOME/.local/share/hermes/hermes-agent/venv/bin/python" scripts/hindsight_reflect.py <profile>
+
+# Bare `python` may still work on legacy ~/.hermes installs where the package
+# is reachable from PATH; on Windows named-profile installs it returns exit 3
+# and the runner auto-re-execs to the venv python when found.
 ```
 
-Exit codes: `0` = reflect ran (or bank was empty + correctly skipped), `1` = daemon failed to start (see `~/.hindsight/profiles/<profile>.log`), `2` = missing API key in profile `.env`, `3` = `hindsight` package not importable.
+Exit codes: `0` = reflect ran (or bank was empty + correctly skipped), `1` = daemon failed to start (see `~/.hindsight/profiles/<profile>.log`), `2` = missing API key in profile `.env`, `3` = `hindsight` package not importable from the active Python. **Exit 3 on Windows named-profile installs almost always means "you ran bare `python`, but hindsight lives in the venv"** — the runner auto-detects this and re-execs to the venv python (look for `re-exec'ing to <venv python>` in stderr). If the re-exec still fails, the venv itself may be broken — re-install with `uv pip install --python <venv> hindsight-all`.
