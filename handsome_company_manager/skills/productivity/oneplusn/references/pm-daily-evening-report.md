@@ -387,13 +387,44 @@ Read `counts.semantic_silent`, `counts.non_silent`, and `counts.response_unparse
 
     If `real_events` is empty for an actor, that actor's row in §4 should show `Issue 动作: 0` — do NOT inflate with `subscribed`/`mentioned`. Comments-via-the-comments-endpoint are the more reliable per-role contribution signal; events are a useful cross-check only for `closed` / `labeled` actions that the comments endpoint misses.
 
-36. **`last_status=ok` + output-dir newest-file age > 1.5× schedule period = cron schedule drift, NOT normal idle** (learned 2026-07-27, PM #155 daily run, on PM config-backup job `74ebd0a0`). Real case: the `oneplusn-PM-config-backup` job (`schedule: 0 20 * * *` = daily at 20:00 CST = 12:00 UTC) had `last_status=ok` BUT its newest output file was **19h old** at the moment of the daily run (15:05 CST today). The "ok" was set by the **previous day's** fire — not today's. Today's scheduled fire at 20:00 CST (= 12:00 UTC) was still 5h in the future, but the 19h gap meant yesterday's 20:00 CST fire ALSO didn't land (the previous fire before that would have been ~48h ago, not 19h). The discrepancy surfaced only because today's `git log --all --since="24 hours ago"` showed 2 commits (reviewer + dev backups) instead of the expected 3 (PM was missing). **Fix — three-step self-flag**:
+36. **Calendar-scheduled cron liveness must be deadline-aware; raw output age is not enough** (corrected 2026-07-29). `last_status=ok` is sticky, but a daily job's latest file can legitimately be many hours old before today's scheduled time. Example: at 15:05 CST, a `0 20 * * *` config-backup whose latest output is yesterday 20:02 CST is healthy—the most recent due time was yesterday 20:00, and today's 20:00 run is still five hours away. The old inference “19h-old output means the previous fire was missed” was wrong.
 
-    1. When checking cron liveness in §6, compare `output_dir.newest_mtime` against `now - schedule_period * 1.5`. If age exceeds, flag the cron as 🟡 "schedule drift" in §3 — not as 🟢 healthy idle.
-    2. Cross-reference with `git log --all --since="24 hours ago"` to confirm whether the expected cron artifact (e.g. the auto `chore: back up <profile> Hermes config` commit) is present. Missing artifact + healthy `last_status` = schedule drift.
-    3. Surface as a `self-flag` row in §4 (PM row gets `🟡 self-flag` instead of clean `—`) and a one-line entry in §8 ("PM config-backup missing 24h commit,排查触发链"). Do NOT report it as 🔴 unless 48h+ have passed without the artifact — 19h is recoverable before the next scheduled fire.
+    Use this classification instead:
 
-    The pattern: `last_status` is a STICKY flag from the last completed run, not a liveness check. Combine with output-dir mtime to detect schedule drift.
+    1. Read `last_run_at` / `next_run_at` and the schedule timezone. Compute the **most recent due occurrence**, not just `now - 24h`.
+    2. For calendar jobs, flag a missed run only when `now` is later than `most_recent_due + grace` (for example 15–30 minutes) **and** there is no output/`last_run_at` at or after that due occurrence.
+    3. For fixed high-frequency jobs (30-minute polling), a relative-age threshold such as `1.5×` the period is useful; do not blindly reuse it for once-per-day calendar schedules.
+    4. Cross-check the expected artifact in its actual destination repository. Per §37, a PM backup may land in `hermes-config` while project commits live in `agent_workflow`; absence from project history is not a failed backup.
+    5. Surface 🟡 schedule drift only after the deadline-aware test fails. Upgrade to 🔴 after another due occurrence is missed or the job repeatedly errors.
+
+    Minimal verdict table:
+
+    | State | Verdict |
+    |---|---|
+    | Latest output ≥ most recent due; next due is future | 🟢 healthy |
+    | Due time passed + grace, no matching output | 🟡 missed occurrence |
+    | Two consecutive due occurrences missed / repeated error | 🔴 broken trigger chain |
+
+    Keep the durable rule: `last_status` alone is not liveness, but neither is raw file age. Compare both against the schedule's actual due times.
+
+37. **Scope commit metrics by repository; verify backup commits in their actual target repo** (learned 2026-07-29 daily run). A profile's config-backup commit and the project's delivery commits may land in different repositories. In the verified case, PM backup `c298b67` was absent from `handsome-s-company/agent_workflow` (`GET .../commits/c298b67` returned 422) but existed in `handsomehu80/hermes-config`; reviewer/dev backup commits happened to appear in `agent_workflow`. Therefore, absence from the workflow repo is not evidence that a backup failed.
+
+    Apply these rules:
+
+    1. **Declare the metric scope.** §1/§4 `commits` should normally mean commits reachable from the workflow project's selected branch set. A config-backup commit in another repo is an operational event, not a project commit; mention it separately and do not inflate the project total.
+    2. **Verify against the real destination.** Read the config-backup response/config to identify its owner/repo, then query that repo for the reported SHA. Never probe only `agent_workflow` and label the backup missing.
+    3. **Preserve a clear fallback statement.** If the local workdir is not a Git repository, print `local commit evidence unavailable` and use the project GitHub API for a bounded replacement. Keep this separate from the health of the config-backup repository.
+    4. **Handle nullable Commit API identities.** GitHub may return top-level `author: null` when the commit email is not linked, even though `commit.author.name` is populated. Attribute with a case-insensitive fallback instead of dropping the commit:
+       ```python
+       def commit_actor(c):
+           return ((c.get("author") or {}).get("login")
+                   or ((c.get("commit") or {}).get("author") or {}).get("name")
+                   or "unknown")
+       ```
+       Verified example: reviewer commit `857d179` had top-level `author=null` but `commit.author.name=Handsome-Review`.
+    5. **Match the intended branch scope.** `/repos/<org>/<repo>/commits?since=...` covers the selected/default branch, not every open PR head. If the report promises all-branch activity, also query `/pulls/<N>/commits` for current PRs and de-duplicate by SHA. If it promises mainline activity, do not add PR-head commits silently.
+
+    The report should make the distinction auditable in one line, for example: `项目仓 commits 2；PM 另仓 config-backup 1（不计项目 commits）`.
 
 ---
 
@@ -404,7 +435,7 @@ When generating the daily, also surface:
 | Check | Command | When to flag |
 |---|---|---|
 | **Zombie crons** | `python -c "import json; ..."` (see §2.3) | Any cron with `last_status == "error"` AND no recent `.md` output |
-| **Cron liveness (last fire)** | `ls -lt <profile_home>/cron/output/<job_id>/ \| head -2` | Output dir newest file >2× schedule period old |
+| **Cron liveness (last fire)** | compare `last_run_at` + output mtime with `most_recent_due` (§36) | Calendar job: due+grace passed with no matching output; interval job: newest output >2× period old |
 | **Workdir drift** | per `SKILL.md` §"Pitfall: Cron workdir drift..." | `os.path.isdir(cron['workdir'])` is False |
 | **Identity drift** | `bash scripts/verify_github_identity.sh <profile>` | Exit 10/11/12 |
 | **Open PR drift** | `gh pr list --state open --json number,updatedAt` | Any PR `updated_at > 7 days ago` |
