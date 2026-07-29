@@ -326,6 +326,16 @@ Stick to the exact structure the boss provided. Don't reformat. Boss has been ex
 6. **摸鱼信号** — dev/reviewer with 0 commit + 0 评论 + 0 PR action in 2h = "无活动,待观察"; two consecutive 0-activity reports = "🔴 摸鱼嫌疑".
 7. **风险等级** — 🔴 阻塞交付 / 🟡 进度慢但有推进 / 🟢 健康.
 
+## 3.1 Final publication gate: number, length, and durable artifact
+
+Before emitting a bi-hourly report, run a small publication preflight. This prevents a correct data pull from becoming an invalid delivery:
+
+1. **Resolve the report number** from the latest real report title in the post-`## Response` body (canonical title regex with the trailing `(`); never emit a literal `#N`/`#N+1` placeholder.
+2. **Use timezone-aware clocks**: UTC for the title/window and local CST/UTC+8 only for the output filename. Do not use naive `utcnow()` on Windows.
+3. **Count the complete Markdown body** (`len(report)`) and enforce the boss's hard ceiling of **≤1500 characters**. If over, compress wording/table cells; do not drop the actual counts or invent a shorter result.
+4. **Write before delivery** to the PM bi-hourly output directory with a CST filename, then read the file back and verify the title number, section headings, and trailing `第 N 期完成` line. The final response must be the same report body; do not add a preamble or a second delivery message.
+5. A 2h checkpoint is still delivered when the GH delta is zero; `[SILENT]` is the task-polling protocol, not a substitute for this report.
+
 **Refinement to rule 6 (learned 2026-07-15):** "0 活动" alone is no longer sufficient — must distinguish "0 活动 + cron dead" (🔴 cron died, restart Gateway) from "0 活动 + cron firing + [SILENT]" (🟢 healthy OR 🔴 stale-verdict deadlock). Use the 4-state classification in §2.5 to label correctly.
 
 **Refinement to rule 6 (added 2026-07-18):** when the 4-state classification returns "boss-merge-PR deadlock" (§2.7), the label is 🔴 but the §6 A/B/C menu is **optional** — escalate to PM-direct-action merge summary after 2 consecutive 2h reports.
