@@ -1,7 +1,7 @@
 ---
 name: hermes-config-backup
 description: "Back up a Hermes Agent profile's configuration to a GitHub repository — discover the repo layout, sync config files while honoring the existing .gitignore, commit, and push. Use when a cron job or user asks to back up Hermes profile config, mirror `~/.hermes/profiles/<profile>/` to a remote git repo, or set up daily/periodic config snapshots. Covers the canonical backup set (config.yaml, SOUL.md, channel_directory.json, memories/, cron/jobs.json, custom skills), the `.bundled_manifest` filter for distinguishing custom skills from bundled ones, Windows Git Bash MSYS gotchas, the `github.com:443` firewall fallback to the GitHub REST API, the Git Data API `BadObjectState` trap when committing 100+ blobs, the parallel-by-dir Contents API push pattern (grouped PUTs avoid the 409 sibling race; serial within dir), nested `.git/` and git-submodule handling, and a re-runnable Python sync script that works on any platform."
-version: 1.6.0
+version: 1.6.1
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
@@ -658,6 +658,8 @@ After the push, the cron job should report:
 - ✅ `git rev-parse HEAD` SHA **does NOT** exist on the remote — that's expected, the Contents API created N separate commits, not your local `git commit`. Don't try to `gh api repos/<owner>/<repo>/commits/<local-sha>` — it'll 422.
 - ✅ Per-file byte-identity check: for every file in the diff, `local_sha256 == sha256(base64.b64decode(remote_meta['content']))`. See the "API-fallback commits are N-per-file" pitfall above for the ready-to-run recipe.
 - ✅ Author of the latest remote commits matches whoever `gh auth token` resolves to (typically the boss, not the .env GITHUB_TOKEN identity) — confirm via `gh api repos/<owner>/<repo>/commits?per_page=N`.
+
+**Interleaved backup authors are normal — don't try to "fix" them.** When the boss also pushes manual backups, the latest 2-3 commits may show different authors — e.g. `c298b67 Hermes Config Backup 2026-07-28T12:02:32Z` (this cron run) followed by `c7b08cf handsomehu80 2026-07-27T12:05:00Z` and `27bed5b handsomehu80 2026-07-27T12:04:57Z` (boss's manual commits between cron ticks). The dedicated identity from §6 just makes `git log --author="Hermes Config Backup"` an easy filter for cron-only history — it does NOT mean every commit on `main` must carry that author. Verify only that YOUR cron commit landed at the tip with the expected short SHA and the dedicated identity; older commits with different authors are expected when the boss interleaves manual backups. Trying to "correct" the boss's manual commit author is a misread of the design.
 
 If any item is missing, `.env` appears, or sibling dirs leak into the diff — **abort and report** — do not silently succeed.
 
