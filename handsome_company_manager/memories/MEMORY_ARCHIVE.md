@@ -9,11 +9,11 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-27** — no-op archive; no entries in MEMORY.md
+> Latest run: **2026-07-28** — no-op archive; no entries in MEMORY.md
 > carried an internal date older than the 30-day cutoff
-> (2026-06-27). The dated active entries are
-> `1+N 数字员工集成(2026-07-08)` (19d old) and
-> `Credential state (2026-07-20)` (7d old); both remain within the
+> (2026-06-28). The dated active entries are
+> `1+N 数字员工集成(2026-07-08)` (20d old) and
+> `Credential state (2026-07-20)` (8d old); both remain within the
 > 30-day window. Undated environment-state facts (Host, Hermes
 > v0.15.1, Agent Team summary, PM 铁律+陷阱, PM cron) remain in place
 > per the "no internal date → don't archive on mtime" rule. USER.md
@@ -21,30 +21,37 @@
 > Hindsight is enabled (`memory.provider: hindsight`) and installed in
 > the venv (`C:/Users/Administrator/AppData/Local/hermes/hermes-agent/
 > venv/Lib/site-packages/hindsight`), so `reflect()` was attempted via
-> `hindsight_reflect.py handsome_company_manager` with a consolidation
-> query. **Bare `python` returns exit 3** ("No module named 'hindsight'")
-> because hindsight is venv-only — this run invoked the venv python
-> (`venv/Scripts/python.exe`) explicitly, which the script's default
-> exit-3 path would have masked. The embedded daemon timed out after
-> 180s; runner exit code = 1; total elapsed 195.9s. Time-scoped
-> current-run signature at **2026-07-27 21:02:24,221**: `WARNING -
-> hindsight_api.engine.llm_trace - LLM trace write failed for
-> scope=verification: PostgreSQLBackend is not initialized. Call
-> initialize() first.` No mental model was created or updated.
-> `HF_TOKEN` remains present-but-commented-out (inactive) in `.env`
-> (verified via state-detection recipe); markdown memory remains the
-> authoritative store. The failed daemon left a fresh 0-byte
-> `~/.hindsight/profiles/handsome_company_manager.lock`; port 9807
-> was probed (1.5s TimeoutError on connect) and confirmed not
-> listening, then the lock was removed safely. Pre-flight found no
+> `hindsight_reflect.py handsome_company_manager` invoked with the
+> venv python explicitly (`venv/Scripts/python.exe`). The embedded
+> daemon timed out after ~178s; runner reported `✗ Daemon Failed
+> (Timeout)` and raised `RuntimeError: Failed to start daemon for
+> profile 'handsome_company_manager'`. New in this run: the HF Hub
+> HEAD requests surfaced a `Warning: You are sending unauthenticated
+> requests to the HF Hub. Please set a HF_TOKEN to enable higher
+> rate limits and faster downloads.` warning at 2026-07-28 21:03:14
+> — i.e., the daemon got FARTHER this cycle (past provider validation
+> into the cross-encoder download phase) before timing out. The
+> retained historical signature in
+> `~/.hindsight/profiles/handsome_company_manager.log` still contains
+> the cross-encoder cascade (`[WinError 10054] 远程主机强迫关闭了
+> 一个现有的连接` / `Cannot send a request, as the client has been
+> closed`); the new HF unauthenticated-rate-limit warning is the
+> dominant environmental signal this cycle. No mental model was
+> created or updated. `HF_TOKEN` remains present-but-commented-out
+> (inactive) in `.env` (verified via state-detection recipe);
+> markdown memory remains the authoritative store. The failed daemon
+> left a fresh 0-byte `~/.hindsight/profiles/
+> handsome_company_manager.lock`; port 9807 was probed
+> (1.5s TimeoutError on connect) and confirmed not listening, then
+> the lock was removed safely. Pre-flight found no
 > `memories/*.lock`. Tri-state liveness: `agent.log` is fresh from
-> this run (0m), `errors.log` is current (~44m), `gateway.log` is
-> ~1084m (~18h) stale; per the tri-state rule this indicates a live
-> agent with a stale logging artifact, not a proven gateway-down
-> condition. Housekeeping structure check
+> this run (0m), `errors.log` is current (~1m), `gateway.log` is
+> ~22m — all three fresh; the agent/gateway path is unambiguously
+> alive (positive change vs the 7-22..7-23 runs that had ~42-66h
+> stale `gateway.log`). Housekeeping structure check
 > (`scripts/verify_housekeeping_structure.py handsome_company_manager`)
-> returned exit 0 with 20 top-level date bullets all at sibling
-> indent level — no nesting regression.
+> returned exit 0 with all top-level date bullets at sibling indent
+> level — no nesting regression.
 
 ---
 
@@ -190,4 +197,12 @@ trusting this trick.
   - Hindsight is enabled and installed. `hindsight_reflect.py` was run with a consolidation query; the daemon timed out after 180s, exit code 1. The time-scoped current-run signature at 2026-07-23 21:01:41 was `PostgreSQLBackend is not initialized. Call initialize() first.` No mental model was created or updated. The retained log still contains the historical Hugging Face cross-encoder connection-reset cascade (`[WinError 10054]` / `Cannot send a request, as the client has been closed`).
   - `HF_TOKEN` is present but commented out (inactive). Boss action remains one of: uncomment and set a real `HF_TOKEN`, switch Hindsight to `local_external`, or use cloud mode. Markdown memory remains the source of truth until the environmental blocker is resolved.
   - Liveness tri-state: `agent.log` is fresh from this run and `errors.log` is current (~50m); `gateway.log` is ~66h stale, so this is a logging artifact rather than proof the gateway is down.
-- Next scheduled cleanup: per the cron job cadence. Boss action for unlocking `reflect()`: choose one of the three remedies above; the Hindsight blocker has persisted for 11 consecutive runs.
+- 2026-07-28 — no-op archive (cutoff 2026-06-28). Dated active entries remain 2026-07-08 (20d) and 2026-07-20 (8d); no entries exceed the 30-day window. Undated current-state facts (Host / Hermes v0.15.1 / Agent Team / PM 铁律+陷阱 / PM cron) stay active. USER.md unchanged.
+  - Pre-flight: no stale `memories/*.lock` files to clean. Hindsight attempt left a fresh 0-byte profile lock; port 9807 confirmed not listening, then the lock was removed safely.
+  - Liveness tri-state is fully green this cycle: `agent.log` (1.9MB) was touched this very run (0m), `errors.log` (539KB) is 1m old, `gateway.log` (61KB) is ~22m old — all three fresh. The agent/gateway path is unambiguously alive. This is a notable positive change vs the 7-22 / 7-23 runs which had ~42–66h stale `gateway.log` (those were logging artifacts, not gateway-down — but this cycle removes even that ambiguity).
+  - Hindsight is enabled (`memory.provider: hindsight` per `config.yaml`); `hindsight-all 0.8.4` is installed in the venv. `hindsight_reflect.py handsome_company_manager` was invoked with the venv python explicitly (`C:/Users/Administrator/AppData/Local/hermes/hermes-agent/venv/Scripts/python.exe`); the runner output showed `Starting Daemon (handsome_company_manager @ :9807)` → `⏳ Waiting for daemon... (178s elapsed)` → `✗ Daemon Failed (Timeout)`. Script wrapper exit code = 0 (wrapper always 0; the daemon failure is reported via `RuntimeError` then caught).
+  - Time-scoped current-run signature (lines at/after this run's start 2026-07-28 21:03:14): the HF Hub HEAD requests surfaced a NEW signal not seen in any prior run — `Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.` This warning implies the daemon got FARTHER this cycle than the recent (7-21..7-27) runs where the cross-encoder `cross_encoder.initialize()` never got far enough to surface a HF auth warning. The retained historical signature in `~/.hindsight/profiles/handsome_company_manager.log` (now 43476 B, +594 B since the 7-27 run) still includes the cross-encoder cascade (`[WinError 10054]` / `Cannot send a request, as the client has been closed`); this run's new content is dominated by the unauthenticated-rate-limit warning + the LiteLLM remote model cost map timeout fallback (unrelated to the blocker). The blocker remains environmental.
+  - **Diagnostic implication**: the new HF auth-warning signature slightly weakens the "HF_TOKEN alone is the blocker" hypothesis — the daemon appears to be getting past provider validation now, into the cross-encoder HF download phase, where it stalls due to unauthenticated-rate-limiting + connection-reset on the same HF Hub HEAD. The (a/b/c) remediation trio from the 7-13 run still applies, with (a) `set HF_TOKEN=hf_***` being the most direct match for the new warning.
+  - `HF_TOKEN` is still present-but-commented-out in `~/.hermes/profiles/handsome_company_manager/.env` (verified this run via the §HF_TOKEN state-detection recipe; line starts with `# HF_TOKEN=`). Action item (a) from 7-13 is still pending.
+  - Boss action STILL open (13th consecutive same-signature day; same trio as 7-13..7-27): choose one of (a) uncomment `HF_TOKEN` and set a real value, (b) switch Hindsight to `local_external`, or (c) use cloud mode. The previous actual Hindsight attempt was 2026-07-27 21:02 (log mtime); this run refreshed the log at 2026-07-28 21:03.
+- Next scheduled cleanup: per the cron job cadence. Boss action for unlocking `reflect()`: choose one of the three remedies above; the Hindsight blocker has persisted for 13 consecutive runs (7-16..7-28).
