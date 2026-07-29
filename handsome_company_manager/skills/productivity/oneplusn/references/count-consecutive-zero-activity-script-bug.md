@@ -148,6 +148,36 @@ If the post-Response dev rows show `🔴 连续多期无产物` consistently but
 script's table row shows `0 = 摸鱼,3+ = 良好` (template placeholder), the
 script bug is back — apply the fix again or check the script version.
 
+## Second failure mode: report-row format drift after the Response fix
+
+The post-`## Response` anchor fixes the template-vs-response bug, but it does not make the parser format-independent. The `ZERO_PATTERNS` list can still miss a valid zero-activity row when the report writer changes table formatting. Common current shapes include:
+
+```text
+| 🛠 dev | ... | **0** | 0 / 0 / 0 | ... |
+| 🛠 dev | ... | 0 | 0 commit/评论/PR | ... |
+```
+
+The older patterns expect forms such as `0 commit / 0 评论 / 0 PR` or `本期完成 | 0 |`; bold markers, compact slash-separated counts, and a different column label can therefore produce a false `trailing_run=0` / `[green]` result even when GitHub shows zero commits, comments, and PR actions.
+
+**Operational rule:** treat this script as a corroborator, never as the sole activity authority. Before using its verdict in a PM report:
+
+1. Restrict parsing to the actual post-`## Response` §3 (the first-match fix still applies).
+2. Normalize Markdown decoration and inspect the role row structurally, or manually cross-check the remote GitHub counts for the same UTC window.
+3. If the script says green but the normalized row/API says `0/0/0`, report the real zero-activity/deadlock state and mark the script result as a parser mismatch; do not downgrade the risk to green.
+
+A minimal format-tolerant probe for a post-Response role row is:
+
+```python
+normalized = re.sub(r"[*`_ ]", "", row)
+is_zero = bool(
+    re.search(r"\|0\|", normalized)
+    or re.search(r"\b0/0/0\b", normalized)
+    or re.search(r"0commit/评论/PR", normalized)
+)
+```
+
+This is a detection fallback, not a replacement for the GitHub-side count. If report templates evolve again, update the parser or use a structured JSON activity table rather than silently trusting a stale regex list.
+
 ## Why the Bug Was Invisible for So Long
 
 The bug only manifests when the script's verdict disagrees with the
