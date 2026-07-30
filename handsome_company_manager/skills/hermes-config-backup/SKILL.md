@@ -381,21 +381,22 @@ When `skills/<foo>/scripts/` (or any other path) is a git submodule on the remot
 
 **Real case (2026-07-18):** `handsomehu80/hermes-config` has `handsome_company_manager/skills/productivity/oneplusn/scripts` as a git submodule (sha `11a2b16c`). 14 script files in that dir were "new" per the local-vs-remote diff, all 409'd, none pushed. Correct call was to skip them — the submodule pointer is intentional (it's shared with `handsome_company_reviewer/skills/productivity/oneplusn/scripts` which is a regular tree in the same repo, suggesting the PM profile's scripts/ is the canonical source).
 
-**Pre-detection pattern** (run BEFORE push, before computing the diff to avoid wasted work):
+**Pre-detection pattern** (run BEFORE computing the diff, NOT just before pushing — verified 2026-07-29 PM backup: pre-filtering the diff itself dropped "added" from 16 → 0 and gave a clean report):
 
-```python
-import subprocess, json
+```bash
+gh api repos/<owner>/<repo>/git/trees/main?recursive=1 --jq '.tree[] | select(.type == "commit") | .path'
+# Or in Python for direct consumption:
+python -c "
+import json, subprocess
 r = subprocess.run(['gh','api','repos/<owner>/<repo>/git/trees/main?recursive=1'],
                   capture_output=True, text=True)
 tree = json.loads(r.stdout)['tree']
-submodule_paths = {e['path'].removeprefix('<profile>/')  # strip profile prefix
-                   for e in tree if e.get('type') == 'commit'}
-# Then filter the diff:
-filtered_added = [p for p in added if p not in submodule_paths]
-filtered_modified = [p for p in modified if p not in submodule_paths]
+submodule_paths = {e['path'] for e in tree if e.get('type') == 'commit'}
+print(' '.join(sorted(submodule_paths)))
+"
 ```
 
-Or run the pre-detection as part of the push script: for each path in the diff, `GET /repos/<owner>/<repo>/contents/<api_path>?ref=main` — if the response is `type: "submodule"` (a few GitHub API responses include this), skip. Note: Contents API `GET` for a submodule path returns the submodule's metadata, NOT a 404 — so a successful GET is not enough to know it's writable.
+For each reported path, strip the profile prefix and exclude that subtree from BOTH the diff AND the push. The bundled `push_via_contents_parallel.py` does NOT auto-skip submodule paths — it will 409 on every PUT under that path. Verified real case (2026-07-29): PM profile had `skills/productivity/oneplusn/scripts/` as a git submodule (sha `11a2b16c`); 16 local script files inside that subtree appeared as "added" in the unfiltered diff; after pre-filtering they were correctly excluded from the push and reported as "submodule subtree — pointer retained". The 10/10 modified files outside the subtree pushed cleanly in 19s.
 
 ### Submodule-aware verification for normal git-clone backups (NEW 2026-07-21)
 
@@ -528,6 +529,37 @@ When searching for "missing" paths, always check that you're searching **all mou
 - OneDrive / cloud mounts at user-profile level
 
 Symptoms of forgetting: you `find /c/...` or `ls /c/Users/...` for a path and it doesn't exist, so you confidently report "the directory doesn't exist" — when it's on `D:\\` (or another drive) all along. The user's correction was explicit: "你再仔细看一下 d:\\onboarding 是真实存在的". Run `mount` or `df -h` first to see what's actually mounted, then search across all of them.
+
+### Stale extraction dir masks real deletions as spurious 404s on the delete path (NEW 2026-07-29)
+
+When using the API-fallback path (`curl` tarball → `tar -xzf` → diff), if `/tmp/hermes-backup/hermes-config-original/` already exists from a **previous** backup run, `tar -xzf` does NOT delete files that aren't in the new tarball. `tar -x` is additive — it only writes files, never removes them. Consequence:
+
+- A file that was deleted from upstream between runs (e.g. `auth.json` removed by a security commit on 2026-07-20, or old skill scripts after a skill was uninstalled) is no longer in the new tarball but **remains on disk** in `original/` from yesterday's extraction.
+- The SHA-256 diff then classifies it as "removed", and the DELETE call returns 404 with "file not found".
+- The diff report shows spurious deletions that are actually already gone — confusing the operator and polluting the audit trail.
+
+**Reproduction (verified 2026-07-29 PM backup):**
+
+```bash
+stat /tmp/hermes-backup/hermes-config-original/<profile>/auth.json
+# Modify: 2026-07-17 20:05:40 (stale — left over from prior run)
+# auth.json was actually deleted from remote on 2026-07-20 (commit e7cc893e)
+# so it should NOT appear as "removed" in the 2026-07-29 diff.
+```
+
+**Fix (mandatory at the start of every API-fallback backup):**
+
+```bash
+# Pick ONE of these — never skip the cleanup:
+rm -rf /tmp/hermes-backup/hermes-config-original      # might hit Windows approval prompt
+# OR use a timestamped path so old dirs are guaranteed not to collide:
+TS=$(date +%s)
+curl -sL -o /tmp/hermes-backup/repo-$TS.tar.gz https://codeload.github.com/<owner>/<repo>/tar.gz/refs/heads/main
+mkdir -p /tmp/hermes-backup/hermes-config-original-$TS
+tar -xzf /tmp/hermes-backup/repo-$TS.tar.gz -C /tmp/hermes-backup/hermes-config-original-$TS --strip-components=1
+```
+
+**Detection before computing the diff:** if `git log --diff-filter=D --name-only origin/main..HEAD -- <profile>/ | head` shows deletions from the remote's own git history, that gives you the **expected** deletion list. Anything extra in your computed diff is stale-local-state pollution. After the fix above, your computed `removed` list should be empty or match the remote's own `git log --diff-filter=D` history exactly.
 
 ### `.git/` directories inside custom skills leak into the backup walk (NEW 2026-07-14)
 
@@ -702,6 +734,7 @@ If `gh auth status` shows the wrong account, `gh auth login --with-token < <corr
 - [`references/api-fallback-when-git-blocked.md`](references/api-fallback-when-git-blocked.md) — full reproduction recipe for the GitHub Contents API / Git Data API push path, with ready-to-run Python scripts. **Read this before the first deploy on a Windows machine** where `github.com:443` may be firewalled.
 - [`references/contents-api-pitfalls.md`](references/contents-api-pitfalls.md) — **NEW (2026-07-14)**: 3 pitfalls not in the SKILL.md's main flow but hit in real backups — Git Data API chunked-tree failure at 60+ entries, Contents API parallel-sibling 409 race, nested `.git/` + submodule detection. **Read this before any >30-file backup push.**
 - [`scripts/sync_profile.py`](scripts/sync_profile.py) — the re-runnable sync script with configurable exclude lists
+- [`scripts/build_clean_diff.py`](scripts/build_clean_diff.py) — SHA-256 diff builder with CRLF normalization + remote submodule pre-filter; outputs the `diff.json` shape that `push_via_contents_parallel.py` consumes (verified 2026-07-29 PM backup)
 - [`scripts/push_via_contents.py`](scripts/push_via_contents.py) — sequential Contents API push (use only for small diffs, <30 files)
 - [`scripts/push_via_contents_parallel.py`](scripts/push_via_contents_parallel.py) — **NEW (2026-07-14)**: Contents API push grouped by parent dir, serial-within-dir / parallel-across-dirs. The right tool for any non-trivial backup on the API-fallback path.
 - [`scripts/push_via_git_data_api.py`](scripts/push_via_git_data_api.py) — Git Data API single-commit push. **Not recommended on Windows API-fallback path** (see Pitfall 1 in contents-api-pitfalls.md).
