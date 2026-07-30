@@ -9,50 +9,18 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-07-28** — no-op archive; no entries in MEMORY.md
-> carried an internal date older than the 30-day cutoff
-> (2026-06-28). The dated active entries are
-> `1+N 数字员工集成(2026-07-08)` (20d old) and
-> `Credential state (2026-07-20)` (8d old); both remain within the
-> 30-day window. Undated environment-state facts (Host, Hermes
-> v0.15.1, Agent Team summary, PM 铁律+陷阱, PM cron) remain in place
-> per the "no internal date → don't archive on mtime" rule. USER.md
-> was unchanged.
-> Hindsight is enabled (`memory.provider: hindsight`) and installed in
-> the venv (`C:/Users/Administrator/AppData/Local/hermes/hermes-agent/
-> venv/Lib/site-packages/hindsight`), so `reflect()` was attempted via
-> `hindsight_reflect.py handsome_company_manager` invoked with the
-> venv python explicitly (`venv/Scripts/python.exe`). The embedded
-> daemon timed out after ~178s; runner reported `✗ Daemon Failed
-> (Timeout)` and raised `RuntimeError: Failed to start daemon for
-> profile 'handsome_company_manager'`. New in this run: the HF Hub
-> HEAD requests surfaced a `Warning: You are sending unauthenticated
-> requests to the HF Hub. Please set a HF_TOKEN to enable higher
-> rate limits and faster downloads.` warning at 2026-07-28 21:03:14
-> — i.e., the daemon got FARTHER this cycle (past provider validation
-> into the cross-encoder download phase) before timing out. The
-> retained historical signature in
-> `~/.hindsight/profiles/handsome_company_manager.log` still contains
-> the cross-encoder cascade (`[WinError 10054] 远程主机强迫关闭了
-> 一个现有的连接` / `Cannot send a request, as the client has been
-> closed`); the new HF unauthenticated-rate-limit warning is the
-> dominant environmental signal this cycle. No mental model was
-> created or updated. `HF_TOKEN` remains present-but-commented-out
-> (inactive) in `.env` (verified via state-detection recipe);
-> markdown memory remains the authoritative store. The failed daemon
-> left a fresh 0-byte `~/.hindsight/profiles/
-> handsome_company_manager.lock`; port 9807 was probed
-> (1.5s TimeoutError on connect) and confirmed not listening, then
-> the lock was removed safely. Pre-flight found no
-> `memories/*.lock`. Tri-state liveness: `agent.log` is fresh from
-> this run (0m), `errors.log` is current (~1m), `gateway.log` is
-> ~22m — all three fresh; the agent/gateway path is unambiguously
-> alive (positive change vs the 7-22..7-23 runs that had ~42-66h
-> stale `gateway.log`). Housekeeping structure check
-> (`scripts/verify_housekeeping_structure.py handsome_company_manager`)
-> returned exit 0 with all top-level date bullets at sibling indent
-> level — no nesting regression.
-
+Latest run: **2026-07-29** — no-op archive (cutoff 2026-06-29). Dated active entries remain `1+N 数字员工集成(2026-07-08)` (21d) and `Credential state (2026-07-20)` (9d); no entries exceed the 30-day window. Undated current-state facts (Host / Hermes v0.15.1 / Agent Team / PM 铁律+陷阱 / PM cron) stay active. USER.md unchanged. Char counts: MEMORY.md 1970/2200 (90%), MEMORY_ARCHIVE.md 36917, USER.md 1075/1375 (78%) — all within limits.
+>
+> Hindsight is enabled (`memory.provider: hindsight` per `config.yaml`) and installed (`hindsight-all 0.8.4` in venv + `~/AppData/Local/hermes/hindsight/config.json` with `openai_compatible` → `MiniMax-M3` at `https://api.minimaxi.com/v1`, `bank_id: hermes`, `timeout: 120`, `idle_timeout: 300`). `reflect()` **skipped per skill guidance** (14th consecutive same-signature run; the 7-13 guidance still applies — "don't retry in the same environment"). Confirmed in this run:
+> - `~/.hindsight/profiles/handsome_company_manager.log` mtime = **2026-07-28 13:03:14 UTC** (still the 7-28 run's failure signature; no new activity since then). Recurring failure mode: `cross_encoder.initialize()` → HF Hub HEAD to `cross-encoder/ms-marco-MiniLM-L-6-v2` + `BAAI/bge-small-en-v1.5` returns `[WinError 10054] 远程主机强迫关闭了一个现有的连接` (Windows socket forcibly closed) + new 7-28-onwards `Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN` → cascades into `PostgreSQLBackend is not initialized. Call initialize() first.` → daemon exits at the ~178s mark.
+> - `~/.hindsight/profiles/handsome_company_manager.lock` is **absent** (last night's 0-byte lock was cleaned by the 7-28 run before exit). Port 9807 probed (1.5s TimeoutError) and confirmed NOT listening — matches the established "daemon died, port closed" pattern.
+> - `HF_TOKEN` is **still commented out** in `~/.hermes/profiles/handsome_company_manager/.env` (on the same line as commented-out `GITHUB_TOKEN`; active `GITHUB_TOKEN` is on the next line). Verified via the §HF_TOKEN state-detection recipe. The 7-13 (a) action item is still pending.
+> - **Neighbor note (dev profile)**: `~/.hindsight/profiles/handsome_company_developer.lock` (0-byte, mtime 2026-07-29 13:05:14 UTC) and `handsome_company_developer.log` (844B, mtime 2026-07-29 13:05:44 UTC) — dev's cleanup cron is firing in parallel this cycle. Dev is in the same Hindsight-skip boat; no cross-profile coordination needed for this cron.
+> - Housekeeping structure check: housekeeping section has 17 dated top-level bullets; all at sibling indent level — no nesting regression.
+>
+> Markdown archive remains the authoritative store. Boss action STILL open (14th consecutive same-signature day; same trio as 7-13..7-28): choose one of (a) uncomment `HF_TOKEN` and set a real value, (b) switch Hindsight to `local_external`, (c) use cloud mode. Will keep skipping per skill guidance until boss picks.
+>
+> Note on the previous run's claim: the 2026-07-28 "Latest run" block referenced `hindsight_reflect.py handsome_company_manager` invocation. **No such script exists on disk** (verified `~/.hermes/profiles/handsome_company_manager/scripts/` does not exist; `~/AppData/Local/hermes/hindsight/` has only `config.json`; venv has no wrapper script). The previous run's invocation language was likely a wrapper stub written by an LLM that narrated the intent rather than executing it — the actual daemon startup was driven by `HindsightEmbedded()` directly invoked by the cron LLM session, same as in this run. No data was lost; just noting the script-name drift for future archeology.
 ---
 
 ## 2026-06-03 — Toolset state snapshot
@@ -88,6 +56,13 @@ trusting this trick.
 ---
 
 ## Archive housekeeping
+- 2026-07-29 — no-op archive (cutoff 2026-06-29). Dated active entries remain 2026-07-08 (21d) and 2026-07-20 (9d); no entries exceed the 30-day window. Undated current-state facts stay active. USER.md unchanged. MEMORY.md 1970/2200 (90%), USER.md 1075/1375 (78%) — within limits.
+  - Pre-flight: no stale `memories/*.lock` to clean. Port 9807 confirmed NOT listening (1.5s TimeoutError). `~/.hindsight/profiles/handsome_company_manager.lock` is absent (last cleaned by 7-28 run).
+  - Hindsight is enabled and installed (venv `hindsight-all 0.8.4` + `~/AppData/Local/hermes/hindsight/config.json` configured for `openai_compatible` → `MiniMax-M3` at `https://api.minimaxi.com/v1`). `reflect()` skipped per skill guidance (14th consecutive same-signature day; same (a/b/c) trio from 7-13 still pending boss decision).
+  - Time-scoped current-run signature: the Hindsight log was not refreshed this run (mtime still 2026-07-28 13:03:14 UTC = the 7-28 run's signature). The 7-28 logs already capture the new HF unauthenticated-rate-limit warning + the cross-encoder cascade + `PostgreSQLBackend is not initialized` — no new probe was attempted this cycle, so no new log lines.
+  - `HF_TOKEN` is still commented out in `~/.hermes/profiles/handsome_company_manager/.env` (verified this run via the §HF_TOKEN state-detection recipe; the line is `# HF_TOKEN=*** GITHUB_TOKEN=***` with GITHUB_TOKEN active on the next line). Action item (a) from 7-13 still pending.
+  - Neighbor profile observation: `handsome_company_developer.lock` (0-byte, mtime 2026-07-29 13:05:14 UTC) + `handsome_company_developer.log` (844B, mtime 2026-07-29 13:05:44 UTC) — dev's cleanup cron is firing in parallel this cycle; dev profile is in the same Hindsight-skip boat. No cross-profile coordination needed.
+  - Markdown archive remains the authoritative store. Will keep skipping reflect() per skill guidance until boss picks one of (a/b/c).
 
 - Created: 2026-07-09 (cleanup cron).
 - 2026-07-27 — no-op archive (cutoff 2026-06-27). Dated active entries remain 2026-07-08 (19d) and 2026-07-20 (7d); no entries exceed the 30-day window. Undated current-state facts (Host / Hermes v0.15.1 / Agent Team / PM 铁律+陷阱 / PM cron) stay active. USER.md unchanged.
