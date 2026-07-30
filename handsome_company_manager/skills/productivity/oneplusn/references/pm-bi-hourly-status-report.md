@@ -1,7 +1,7 @@
 ---
 name: pm-bi-hourly-status-report
 description: "PM's recurring every-2-hours status report playbook — data collection, 4-state classification, report template, pitfalls."
-version: 1.12.0
+version: 1.13.0
 parent_skill: oneplusn
 metadata:
   hermes:
