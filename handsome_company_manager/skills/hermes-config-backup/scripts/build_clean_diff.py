@@ -25,10 +25,22 @@ Usage:
       --staging   /tmp/hermes-backup/hermes-config-staging/<profile> \\
       --out       /tmp/hermes-backup/diff.json
 
-The --original dir MUST be freshly extracted from a current tarball
-(rm -rf + tar -xzf) — otherwise stale files from prior runs appear as
-spurious 'removed' entries. See SKILL.md "Stale extraction dir masks
-real deletions as spurious 404s" pitfall.
+The --original dir MUST:
+  1. Be freshly extracted from a current tarball (rm -rf + tar -xzf) —
+     otherwise stale files from prior runs appear as spurious 'removed'
+     entries. See SKILL.md "Stale extraction dir masks real deletions
+     as spurious 404s" pitfall.
+  2. Be PROFILE-SCOPED, i.e. point to the <profile>/ subdir of the
+     tarball, NOT the whole-repo root. In multi-profile repos
+     (handsome_company_manager + handsome_company_reviewer + ...) the
+     tarball extracts every sibling profile; if --original is the root
+     every sibling's files appear as phantom 'removed' entries.
+     Fix: copy the profile subdir before diffing:
+         cp -r /tmp/hermes-backup/original-<ts>/<profile> \\
+               /tmp/hermes-backup/original-<profile>-only
+         --original /tmp/hermes-backup/original-<profile>-only
+     See SKILL.md "Scope --original to your profile subdir in multi-
+     profile backup repos" pitfall.
 """
 from __future__ import annotations
 
@@ -78,7 +90,9 @@ def main():
     ap.add_argument("--branch", default="main")
     ap.add_argument("--profile", required=True, help="profile name (folder on remote)")
     ap.add_argument("--original", required=True, type=Path,
-                    help="Freshly extracted remote tree (rm -rf first!)")
+                    help="Freshly extracted remote tree (rm -rf first!). "
+                         "MUST be profile-scoped (e.g. original-<ts>/<profile>/), "
+                         "NOT the whole tarball root, in multi-profile repos.")
     ap.add_argument("--staging", required=True, type=Path,
                     help="sync_profile.py output (live profile -> staging)")
     ap.add_argument("--out", required=True, type=Path,
@@ -160,14 +174,29 @@ def main():
     print(f"  skipped (submodule subtree): {len(skipped_submodule)}")
     print(f"  wrote {args.out}")
 
-    # Sanity warn: if 'removed' is unexpectedly large AND --original was
-    # not freshly extracted, the user is likely hitting the stale-dir bug.
+    # Sanity warn: if 'removed' is unexpectedly large, check the most likely
+    # causes in priority order. Multi-profile scope is the #1 cause when the
+    # tarball was freshly extracted and the remote contains sibling profiles.
     if len(removed) > 5 and not args.no_submodule_filter:
+        # Try to bucket the removed entries by top-level dir to diagnose
+        from collections import Counter
+        topdirs = Counter(p.split("/", 1)[0] for p in removed).most_common(5)
         print()
-        print("NOTE: 'removed' count is high. If --original was not freshly")
-        print("  extracted (rm -rf before tar -xzf), see SKILL.md 'Stale")
-        print("  extraction dir masks real deletions' pitfall — these may be")
-        print("  stale-local-state pollution, not real upstream deletions.")
+        print("NOTE: 'removed' count is high. Common causes (check in order):")
+        print("  1. MULTI-PROFILE SCOPE: --original is the WHOLE tarball root,")
+        print("     not the profile-scoped subdir. Every sibling profile's files")
+        print("     appear as 'removed'. Fix: cp -r <original>/<profile> <scoped>/")
+        print("     then re-run with --original <scoped>. See SKILL.md 'Scope")
+        print("     --original to your profile subdir in multi-profile backup")
+        print("     repos' pitfall.")
+        print("  2. STALE EXTRACTION: --original was not freshly extracted")
+        print("     (rm -rf before tar -xzf). Stale files from prior runs")
+        print("     appear as 'removed'. See SKILL.md 'Stale extraction dir")
+        print("     masks real deletions' pitfall.")
+        print()
+        print("  Removed-entry top-level dirs (helps disambiguate):")
+        for d, n in topdirs:
+            print(f"    {d}: {n}")
     return 0
 
 

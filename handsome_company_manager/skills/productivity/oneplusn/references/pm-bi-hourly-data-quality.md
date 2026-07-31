@@ -87,6 +87,24 @@ This is already documented in `references/pm-bi-hourly-status-report.md` §2.4 a
 
 ---
 
+## DQ-4. One reporting period may produce two files; dedupe by report N, never by filename (learned 2026-07-31, PM #198)
+
+**Symptom**: `count_consecutive_zero_activity.py --window 6` reports `trailing_run=1` even though the last three numbered reports all show zero activity. Its diagnostic alternates real rows (`#197`, `#196`, `#195`) with `#? (not in report)` rows at the same minute.
+
+**Cause**: the PM recipe writes a compact body-only report before final delivery, then the cron wrapper stores a second, much larger prompt+`## Response` envelope for the same N. Sorting the newest six **files** therefore yields only three reporting periods plus three duplicates. A body-only artifact has no `## Response`; older parsers treated it as an unnumbered active report, which reset the trailing-zero run.
+
+**Fix**:
+
+1. Normalize each file into a report body: use the last `## Response` block when present; otherwise accept the last canonical report title only if §1 and §3 exist.
+2. Extract N from that normalized body using the canonical-title → alternative-title → `第 N 期` fallback chain.
+3. Sort by mtime, keep the first valid artifact per N, and stop after N **distinct report numbers**—not N files.
+4. Skip unnumbered/incomplete files entirely; do not convert them into `is_zero=False` history entries.
+5. Display mtimes as timezone-aware UTC (`datetime.fromtimestamp(mtime, timezone.utc)`).
+
+The bundled `scripts/count_consecutive_zero_activity.py` implements this normalization and deduplication. Verification: its output must contain at most one row per report number and no alternating `#?` duplicates for the same minute.
+
+---
+
 ## When to Load This File
 
 - Every PM bi-hourly cron fire (paired with `pm-bi-hourly-status-report.md`)

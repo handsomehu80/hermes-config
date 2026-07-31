@@ -333,7 +333,46 @@ These hit during real syncs and will hit again. Full reproduction recipes in [`r
 
 ## Common Pitfalls (learned the hard way)
 
-### diff JSON key naming: script expects `new_paths`/`modified_paths`, natural computation produces `added`/`modified` (NEW 2026-07-18)
+### Scope `--original` to your profile subdir in multi-profile backup repos (NEW 2026-07-30, PM config-backup)
+
+The API-fallback path (`curl` tarball → `tar -xzf` → `build_clean_diff.py`) extracts the **whole repo** into `<original>/` — including every sibling profile's subdir (`handsome_company_manager/`, `handsome_company_reviewer/`, `README.md`, etc.). But `sync_profile.py` only writes **your** profile into `<staging>/<profile>/`. When you pass `--original <original>/` (tarball root) and `--staging <staging>/<profile>/`, `build_clean_diff.py` walks the entire original tree and emits **600+ phantom "removed" entries** that are actually the sibling profile's contents.
+
+**Symptom (verified 2026-07-30 PM config-backup, repo with 2 profiles + README):**
+
+```
+=== Diff ===
+  added:    20
+  modified: 7
+  removed:  605          ← phantom: 603 sibling-profile files + 1 README.md + 1 .gitignore
+  skipped (submodule subtree): 0
+```
+
+The `build_clean_diff.py` "removed" warning heuristic (>5 entries) only flags "stale extraction dir" — it does NOT mention the multi-profile scope issue, which is the **first** thing to check when the tarball was freshly extracted.
+
+**Fix (mandatory at the start of every API-fallback backup in a multi-profile repo):** copy the profile-scoped subdir before diffing:
+
+```bash
+mkdir -p /tmp/hermes-backup/original-mgr-only
+cp -r /tmp/hermes-backup/original-<ts>/handsome_company_manager \
+      /tmp/hermes-backup/original-mgr-only/
+
+python build_clean_diff.py \
+  --repo   handsomehu80/hermes-config \
+  --profile handsome_company_manager \
+  --original /tmp/hermes-backup/original-mgr-only \
+  --staging  /tmp/hermes-backup/staging/handsome_company_manager \
+  --out    /tmp/hermes-backup/diff-clean.json
+```
+
+After the fix, the diff drops to a sane size (verified 2026-07-30: 3 added / 7 modified / 0 removed / 17 skipped submodule, against the same `original-<ts>` tarball).
+
+**Why the script doesn't auto-scope:** `build_clean_diff.py` walks both `--original` and `--staging` verbatim — it has no way to know "diff only the subdir matching profile X" without the user telling it. The `--profile` flag is used for the submodule pre-filter (which strips `skills/.../scripts/` subtrees), not for tree scoping. Always pair `--original` with the same profile subdir contained in `--staging`.
+
+**Detection (before pushing):** count `removed` entries by top-level dir. If `removed` is high and disproportionately concentrated in a sibling profile name (`handsome_company_reviewer/`, `handsome_company_developer/`, etc.), THIS is the bug — not stale extraction. The incorrect "stale extraction" warning is misleading in multi-profile repos.
+
+**Alternative rejected:** keeping `--original` as the full repo and mirroring sibling profiles into `<staging>/` too. That requires either (a) running `sync_profile.py` against each sibling profile (you don't have those profiles locally), or (b) using a different diff tool that filters by `--profile` subtree. Both are more work than the simple `cp -r` above.
+
+### Diff JSON key naming: script expects `new_paths`/`modified_paths`, natural computation produces `added`/`modified` (NEW 2026-07-18)
 
 `scripts/push_via_contents_parallel.py` reads the diff with:
 ```python
