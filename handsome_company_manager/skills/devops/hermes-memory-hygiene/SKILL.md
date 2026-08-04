@@ -94,6 +94,88 @@ The `patch(mode='replace')` tool uses 9-strategy fuzzy matching — when your `o
 
 The "anchor to `## Archive housekeeping` heading + first `- Created:` line" advice above works for SIMPLE patches but is not robust against fuzzy matching when the new entry has unique-looking text in its sub-bullets. Combine with `verify_housekeeping_structure.py` immediately after every patch — that's the only reliable verification signal.
 
+#### Insertion-point boundary safety — `\n` before/after the target marker is non-optional (learned 2026-08-03, PM memory-cleanup cron run #16)
+
+The `text[:idx] + new_entry + text[idx:]` pattern silently concatenates if `idx` lands between a non-newline-terminated previous line and the start of the next line. Real failure (this run): my new_entry started with `- 2026-08-03` at column 0 and I searched for `"\n- Next scheduled cleanup:"`. `text[:idx]` ended with the last char of the previous sub-bullet (a period `.`); `text[idx:]` started with `"\n- Next scheduled cleanup:"`. The concat produced `....- 2026-08-03 — no-op archive...` — the top-level line was concatenated into the previous sub-bullet, making a malformed single-line "bullet" with multiple KB of garbage. The `verify_housekeeping_structure.py` script reported the right total file size and exit 0 — but the new entry was missing from the top-level count.
+
+**Three patterns that survive the boundary problem:**
+
+1. **Insert a leading `\n` separator in your new content** — guaranteed to produce a fresh line:
+   ```python
+   target = "\n- Next scheduled cleanup:"
+   idx = text.find(target)
+   new_text = text[:idx] + "\n" + new_entry.lstrip("\n") + text[idx:]
+   ```
+2. **Search by the LAST unique content of the previous block**, not the FIRST char of the next:
+   ```python
+   end_marker = "...this run refreshed the log at 2026-07-28 21:03."
+   insert_pos = text.find(end_marker) + len(end_marker)
+   new_text = text[:insert_pos] + "\n\n" + new_entry + text[insert_pos:]
+   ```
+3. **Replace the marker itself with `(new_entry + marker)`** — preserves the marker, new content lands before it:
+   ```python
+   marker = "\n- Next scheduled cleanup:"
+   idx = text.find(marker)
+   new_text = text[:idx] + "\n" + new_entry + text[idx:]
+   ```
+
+**Symptom (silent)**: `verify_housekeeping_structure.py` reports `✓ Housekeeping structure OK` AND file size grew by the expected amount AND top-level count went from N to N+1 — but a manual `grep "^- 2026-08-03"` shows the new date string lives INSIDE a longer previous-entry line instead of as its own top-level line. **Always do a manual grep for the new entry's first-line string after every patch** — even if `verify_housekeeping_structure.py` passed.
+
+#### `verify_housekeeping_structure.py` has a content-merge blind spot (learned 2026-08-03)
+
+The verify script checks:
+- Top-level bullets at indent=0 ✓
+- Sub-bullets at indent=2 ✓
+- Unexpected indent (4+) flagged ✓
+
+It does NOT check:
+- A top-level entry's first line was merged into a previous sub-bullet line (the resulting "line" still parses as a single sub-bullet at indent=2 — passes the check)
+- The number of top-level entries matches the expected monotonic increase from prior runs
+
+When a broken merge produces `  - sub-bullet text... 21:03.- 2026-08-03 — no-op archive...`, the verify script reports `✓ Housekeeping structure OK — all top-level entries are siblings`. The bug is silent at the structural level.
+
+**Augment the verification** with a count check (run after every patch):
+```python
+from pathlib import Path
+import re
+arch = Path("~/.hermes/profiles/<profile>/memories/MEMORY_ARCHIVE.md").expanduser()
+text = arch.read_text(encoding="utf-8")
+top_level_dates = re.findall(r'^- \d{4}-\d{2}-\d{2}', text, re.MULTILINE)
+# Expected: monotonically increasing by 1 per cron run, starting at the "Created:" entry
+# If a cron run "added an entry" but the count stayed flat, the patch was merged-broken.
+```
+
+#### Surgical region replacement — recovery when prior patch corrupted text (learned 2026-08-03)
+
+When a previous patch went wrong and the broken text is somewhere in the file, the safest recovery is **surgical region replacement**: locate the boundaries of the corrupted region by semantic anchors (the unique END text of the previous clean entry + the unique START text of the next clean entry), then replace the entire corrupted slice with the corrected content.
+
+```python
+from pathlib import Path
+import os
+
+arch = Path("~/.hermes/profiles/<profile>/memories/MEMORY_ARCHIVE.md").expanduser()
+text = arch.read_text(encoding="utf-8")
+
+# Step 1: find the END of the previous clean entry
+prev_end = "...this run refreshed the log at 2026-07-28 21:03."
+start_idx = text.find(prev_end) + len(prev_end)  # insert AFTER this marker
+
+# Step 2: find the START of the next clean entry
+next_start = "\n- Next scheduled cleanup:"
+end_idx = text.find(next_start, start_idx)
+
+# Step 3: build the corrected slice (with explicit leading newlines)
+corrected = "\n\n- 2026-08-03 — ...\n  - sub-bullet 1...\n  - sub-bullet 2...\n"
+
+# Step 4: atomic write
+new_text = text[:start_idx] + corrected + text[end_idx:]
+tmp = arch.with_suffix(".md.tmp")
+tmp.write_bytes(new_text.encode("utf-8"))
+os.replace(tmp, arch)
+```
+
+**Why this beats `patch` for recovery**: a recovery `patch` call has the same fuzzy-matching risks that caused the original bug. Surgical region replacement with semantic anchors + manual split-then-rebuild sidesteps fuzzy matching entirely. Run BOTH `verify_housekeeping_structure.py` AND the count check from the previous subsection before declaring success.
+
 ## Pre-flight housekeeping (always do before the archive sweep)
 
 These are tiny, fast checks that catch problems BEFORE they cascade into the archive decision. Skipping them has caused silent zombie states in past runs.
@@ -260,6 +342,12 @@ he.close()
 - **Daemon startup is slow** (60–180s on Windows). Set `idle_timeout=30` so the daemon exits promptly when done. The embedded client blocks on a port binding, so the parent process won't return until the daemon comes up.
 - **Env vars are read by the daemon subprocess from its own environment**, not just the config dict you pass. Always set `HINDSIGHT_API_LLM_PROVIDER` / `HINDSIGHT_API_LLM_MODEL` / `HINDSIGHT_API_LLM_API_KEY` / `HINDSIGHT_API_LLM_BASE_URL` in the parent process env **before** constructing `HindsightEmbedded`.
 - **General skip rule for `reflect()`**: if the daemon fails to start or the bank is unreachable for *any* environmental reason (network, model download, embedded DB, port binding, missing creds), record the failure signature in `MEMORY_ARCHIVE.md` housekeeping and stop. The markdown archive is the durable source of truth — a skipped `reflect()` does not lose data, only defers the optimization step.
+- **Cron-prompt "call if installed" vs skill-guidance "skip in same environment" — follow the prompt, document the new diagnostic** (learned 2026-08-03, PM memory-cleanup run #16). When the user cron prompt explicitly says "若安装了 hindsight,调用其优化能力做高级整理" ("if installed, call its optimization capability") AND `memory.provider: hindsight` is set, **attempt the call once**. The skill's "skip per guidance" rule (≥7 consecutive same-signature days) is the DEFAULT for routine cron runs, but the user's explicit instruction overrides it. The value of attempting even in a known-broken environment:
+  - **Refreshes the Hindsight log** — provides a current timestamp + last-attempt signature, distinguishing "stuck for days" from "actively failing today"
+  - **May surface a NEW failure signature** — daemon may fail at a different point in startup vs the prior attempt (real case: 7-28 failed at cross-encoder HF HEAD; 2026-08-03 failed earlier at `PostgreSQLBackend.initialize()` — a different gate, same blocker family). The new signature refines the remediation rank.
+  - **Triggers lock-cleanup pre-flight** — confirms port is not listening, removes fresh 0-byte lock
+  - **Cost is bounded** — 60–180s, acceptable for a daily cadence
+  When the prompt is silent on reflect(), follow the skill's "skip per guidance" rule. When the prompt explicitly asks, attempt it once and document the new evidence in the housekeeping entry's "Diagnostic implication" sub-bullet.
 - **Canonical script path is the skill bundle, not the profile's `scripts/` directory** (learned 2026-07-29, PM memory-cleanup cron run). The bundled runner lives at `<hermes-home>/profiles/<active-profile>/skills/devops/hermes-memory-hygiene/scripts/hindsight_reflect.py` (and `verify_housekeeping_structure.py` next to it). It does NOT live at `~/.hermes/profiles/<profile>/scripts/`, `~/AppData/Local/hermes/profiles/<profile>/scripts/`, `~/AppData/Local/hermes/scripts/`, or `~/AppData/Local/hermes/hindsight/` — those paths have been claimed by past housekeeping entries and verified-empty. The skill's "Files" section lists the canonical paths; never invent a `~/.hermes/profiles/<profile>/scripts/hindsight_reflect.py` and never claim it ran from such a path. When invoking, use the **absolute path** or the path relative to the skill bundle's `scripts/` directory. If you find yourself writing `hindsight_reflect.py <profile>` in a command line, resolve the full path first: `python <hermes-home>/profiles/<active-profile>/skills/devops/hermes-memory-hygiene/scripts/hindsight_reflect.py <profile>`.
 - **Verify the canonical path with an explicit probe before declaring a script "absent on disk"** (learned 2026-07-30, PM memory-cleanup cron run). The 2026-07-29 housekeeping entry claimed `hindsight_reflect.py` is "not on disk" because the LLM author checked only non-canonical paths (`~/.hermes/profiles/<name>/scripts/`, `~/AppData/Local/hermes/hindsight/`, venv). The canonical path at `<hermes-home>/profiles/<active-profile>/skills/devops/hermes-memory-hygiene/scripts/hindsight_reflect.py` was never probed. Verified on 2026-07-30: the script DOES exist at the canonical path (9960B). The 7-29 "narrative drift" accusation was itself wrong. Rule: when asserting that a script the skill names is absent, run `Path("<canonical_path>").exists()` and `Path("<canonical_path>").stat().st_size` and record both results in housekeeping. If `True`, the prior claim was false — correct it with a self-correction note (don't silently overwrite). If `False`, the claim is verified and you can proceed with the alternative-path hypothesis. Don't conflate "I checked three wrong paths and didn't find it" with "the file doesn't exist anywhere."
 - **In-process `HindsightEmbedded()` is a valid alternative when the script wrapper is missing or auto-reexec fails** (verified 2026-07-29, PM memory-cleanup cron run). The script is a thin wrapper around `HindsightEmbedded(profile, llm_provider, llm_api_key, llm_model, llm_base_url, idle_timeout, log_level)` — the LLM itself can `import hindsight; he = hindsight.HindsightEmbedded(...)` directly without needing the script on disk. This is the canonical fallback when (a) the skill bundle is not installed at the resolver's expected path, (b) the cron fires inside an LLM process that has the venv python in `sys.executable` already, or (c) the script's auto-reexec to the venv python fails. The skip guidance in this skill still applies — if the daemon fails after 60–180s, fall back to the markdown archive. The advantage of the in-process path is no argv-serialization cost and no `os.execv` race; the disadvantage is the LLM's `sys.executable` must already be the venv python (verify with `python -c "import sys; assert 'venv' in sys.executable"` before relying on it).
@@ -273,6 +361,7 @@ he.close()
 - [ ] `MEMORY_ARCHIVE.md` header records the latest run date and a one-line summary
 - [ ] Housekeeping section at the bottom of `MEMORY_ARCHIVE.md` updated
 - [ ] **All date entries in housekeeping are siblings at the same indentation level** (no nested `- YYYY-MM-DD` inside another date's bullet) — see Housekeeping structure pitfall above. Automated check: `python scripts/verify_housekeeping_structure.py <profile>`
+- [ ] **Manual grep check after every patch**: confirm the new entry's first-line string exists as its OWN top-level line (e.g. `grep "^- 2026-08-03" MEMORY_ARCHIVE.md` should produce exactly one match at column 0). `verify_housekeeping_structure.py` does NOT catch content-merge bugs where a new top-level line was concatenated into a previous sub-bullet (see Content-merge blind spot pitfall).
 - [ ] Pre-flight housekeeping ran: stale `memories/*.lock` files cleaned, Gateway log mtime checked, **and `agent.log` cross-checked** to disambiguate "log silent" from "gateway dead" (see Pre-flight §3)
 - [ ] If Hindsight `reflect()` ran: `client.list_mental_models(bank_id="hermes")` shows a fresh entry
 - [ ] If Hindsight `reflect()` skipped: housekeeping records (a) why skipped (failure signature or environmental gate), (b) what boss action items remain open, (c) when the previous actual Hindsight attempt was (log mtime)
