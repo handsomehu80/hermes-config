@@ -725,6 +725,18 @@ After the push, the cron job should report:
 - ✅ Bucket porcelain entries by top-level directory: `git status --porcelain | awk '{print $2}' | xargs -I{} dirname {} | cut -d/ -f1 | sort -u` — expect only YOUR profile subdir; sibling profile dirs in the diff = CRLF pollution that you did NOT introduce, do not stage them
 - ✅ No `.env*` files anywhere in `git status --porcelain` output
 
+**Healthy run baseline (concrete example, 2026-08-04 PM config-backup):**
+
+A clean cron run looks like this — numbers are real, not aspirational:
+- `git status --porcelain | wc -l` after `sync_profile.py` + CRLF recovery → **8 entries** (real-world range across consecutive runs: 0 → ~20; >50 almost always means CRLF pollution or scope leak, not a legitimate diff).
+- `git status --porcelain | awk '{print $2}' | xargs -I{} dirname {} | cut -d/ -f1-2 | sort | uniq -c` → counts concentrated in your `<profile>/` subdir only. Sibling profile names appearing in the bucket = either CRLF pollution (re-run `git checkout HEAD -- .`) or, on API-fallback path, multi-profile scope leak (copy `--original` to profile-scoped subdir first per the `references/contents-api-pitfalls.md` pitfall).
+- `git diff --cached --stat` total lines → typically **+50 to +700 / -50 to -1500** per run. Diff >1000 insertions usually means a new skill bundle or substantial memory archive update — verify it's expected, not a stray bulk copy of an unrelated tree.
+- `gh api repos/<owner>/<repo>/contents/<profile>/.env` → **HTTP 404** (the canonical "sensitive file excluded" signal — pair with `git status --porcelain | grep -i '\.env'` returning empty locally).
+- Byte-identity spot check (≥4 files: 1 added + 3 modified) → all SHA-256 match. **On a normal `git push` path, this is belt-and-suspenders** (git's SHA chain already verified every blob on push); **on API-fallback, it's mandatory** — see the post-API-fallback subsection below.
+- `gh api repos/<owner>/<repo>/git/trees/main?recursive=1 --jq '.tree[] | select(.type == "commit") | .path'` → submodule pointers unchanged from the pre-sync state. If SHA `11a2b16c` was the submodule pointer before sync and `11a2b16c` is still the pointer after sync, the submodule was correctly preserved (sync_profile.py copied its 16 internal files into the working tree, but `git add` skipped all of them because of the parent index's `160000` mode entry).
+
+If your numbers match this baseline within ±50%, the run is green. If they don't, re-read the matching pitfall above (CRLF pollution, scope leak, submodule push) before pushing.
+
 **Post-API-fallback verification (when `git push` was blocked and you used Contents API):**
 - ✅ `git rev-parse HEAD` SHA **does NOT** exist on the remote — that's expected, the Contents API created N separate commits, not your local `git commit`. Don't try to `gh api repos/<owner>/<repo>/commits/<local-sha>` — it'll 422.
 - ✅ Per-file byte-identity check: for every file in the diff, `local_sha256 == sha256(base64.b64decode(remote_meta['content']))`. See the "API-fallback commits are N-per-file" pitfall above for the ready-to-run recipe.

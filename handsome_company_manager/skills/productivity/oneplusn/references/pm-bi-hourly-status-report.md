@@ -1,6 +1,6 @@
 ---
 name: pm-bi-hourly-status-report-cron-cadence-gap
-description: "Pitfall: PM bihourly cron output dir shows multi-hour gap but jobs.json last_status=ok. Diagnose 'ghost ok' / scheduler-broken cadence. Load alongside pm-bi-hourly-status-report.md."
+description: "Pitfall: PM bihourly cron output dir shows multi-hour gap but jobs.json last_status=ok. Diagnose 'ghost ok' / scheduler-broken cadence. ⚠ This file lives at `references/pm-bi-hourly-status-report.md` (historical path) but contains ONLY the cadence-gap pitfall — the main PM bihourly recipe (§2.5, §2.7, §2.9-2.11, §3, §4, §5 #15-#27, §6) is **inline in the parent SKILL.md body**, not in any separate reference file. Do NOT load this file expecting the main recipe. Should be renamed to `pm-bihourly-cadence-gap.md` to match its content."
 version: 1.0.0
 parent_skill: oneplusn
 metadata:

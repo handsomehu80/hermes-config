@@ -1,134 +1,61 @@
----
-name: cron-output-dir-picker
-description: "Correct heuristic for picking the right cron output dir under <profile_home>/cron/output/ — fixes the §5 #24 'max by file count' bug in pm-bi-hourly-status-report.md where the task-polling dir (523 files, every 30min) is picked instead of the bi-hourly dir (109 files, every 2h)."
-version: 1.0.0
-parent_skill: oneplusn
-metadata:
-  hermes:
-    tags: [pm-operations, cron-liveness, file-picking, bug-fix]
----
+# Cron Output Dir Picker — Bihourly vs Task-Polling
 
-# Cron Output Dir Picker — Correct Heuristic
+> The `oneplusn` SKILL.md §5 #24 pitfall notes that `max by file count` is INVERTED for picking the bihourly output dir — task-polling fires every 30 min so it accumulates ~5× more files than the bihourly dir. `max(count)` reads a 64 KB `[SILENT]` polling response instead of the bi-hourly report. This file records the canonical correction.
 
-**This file documents a bug + fix in `pm-bi-hourly-status-report.md` §5 #24.**
+## Option 1 (Recommended) — Friendly-name match via cron wrapper header
 
-The §5 #24 recipe for "Read the previous 2h report's §0/§5 BEFORE writing the new one" includes this line:
+Every cron LLM output file opens with a header like:
 
-```python
-# Pick the dir with the most .md files (the bihourly dir, not the polling dirs)
-bihourly_dir = max((d for d in out.iterdir() if d.is_dir()), key=lambda d: len(list(d.glob("*.md"))))
+```
+# Cron Job: pm-bihourly-status-report
+**Job ID:** d26c66fbbdd0
+**Run Time:** 2026-08-04 12:09:34
+**Schedule:** 0 */2 * * *
 ```
 
-**This heuristic is INVERTED** — it picks the WRONG dir. Discovered during PM bi-hourly report #111 on 2026-07-23.
-
-## Why "max by file count" picks the wrong dir
-
-The PM profile `handsome_company_manager` has 5 cron output dirs under `<profile_home>/cron/output/`:
-
-| Friendly name | Schedule | Typical file count | File size mix |
-|---|---|---|---|
-| `oneplusn-PM-task-polling` (cef7e567ee17) | every 30 min (15/45 offset) | **523** | mostly shadow markers (~166B) + real LLM (~64KB) |
-| `oneplusn-PM-config-backup` (74ebd0a04527) | daily 20:00 CST | 11 | all real LLM (~67KB) |
-| `oneplusn-PM-memory-cleanup` (996743153888) | daily 21:00 CST | 10 | all real LLM (~67KB) |
-| `pm-bihourly-status-report` (d26c66fbbdd0) | every 2h (offset 0) | **109** | all real LLM (~70KB) |
-| `pm-daily-evening-report` (0cbfcf7b360e) | daily 15:00 CST | 10 | all real LLM (~72KB) |
-
-The task-polling dir wins on file count by ~5x because it fires 4x/hour vs bihourly's 1x/2h. So `max by count` reads a 64KB `[SILENT]` polling response (not a bi-hourly report), and the staleness check silently fails.
-
-## The correct heuristic (3 options, in preference order)
-
-### Option 1 — Friendly-name match (most robust)
-
-Read the first line of each dir's most recent `.md` (`# Cron Job: <friendly-name>`) and filter to the cron you're looking for. Robust across re-registration where the hash changes.
+So the canonical recipe is: **read the first line of every file in `cron/output/`**, match the substring `pm-bihourly-status-report` (or whatever the friendly name is — `oneplusn-pm-task-polling`, `oneplusn-PM-config-backup`, etc.), and pick the dir whose files all carry that header. For the bihourly cron specifically, the file is `cron/output/d26c66fbbdd0/`.
 
 ```python
 from pathlib import Path
-
-out = Path(r"C:/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/cron/output")
-real_llm_dirs = []
-for d in out.iterdir():
+out_root = Path.home() / "AppData/Local/hermes/profiles/handsome_company_manager/cron/output"
+target_name = "pm-bihourly-status-report"
+for d in out_root.iterdir():
     if not d.is_dir():
         continue
-    files = list(d.glob("*.md"))
+    files = sorted(d.glob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True)
     if not files:
         continue
-    first_line = files[0].read_text(encoding="utf-8", errors="replace").splitlines()[0]
-    real_llm_dirs.append((d, first_line.replace("# Cron Job: ", "")))
-bihourly_dir = next(d for d, name in real_llm_dirs if "bihourly" in name.lower())
+    head = files[0].read_text(encoding="utf-8", errors="replace").splitlines()[0]
+    if target_name in head:
+        bihourly_dir = d
+        break
 ```
 
-**Substring-search gotcha (added 2026-07-28, PM #164).** The actual friendly-name is `pm-bihourly-status-report` — note **no hyphen** in "bihourly". A naïve search like `"bi-hourly" in name.lower()` (with hyphen) returns False. The recipe above uses `"bihourly"` (no hyphen) which matches both `pm-bihourly-status-report` and any future variant. Other oneplusn friendly-names that contain hyphens: `oneplusn-PM-task-polling`, `oneplusn-dev-task-polling`, `oneplusn-rev-task-polling`, `oneplusn-PM-config-backup`, `oneplusn-PM-memory-cleanup` — these are unambiguous because the hyphen is part of the naming convention; the only one that has historically been mis-typed is `bihourly`. When in doubt, dump all 5 dirs and their `# Cron Job:` headers first:
+This is robust because (a) the cron wrapper's `# Cron Job: <name>` header is set by the wrapper at registration time, never drifts, and (b) the matching is content-based, not name-based, so UUID-named dirs are handled correctly.
 
-```python
-for d, name in real_llm_dirs:
-    print(name, len(list(d.glob("*.md"))), "files")
-```
+## Option 2 — Size + heading discriminator
 
-This 2-line print-before-matching catches the substring choice visually before the recipe commits.
+When the friendly-name header is unreliable (rare, but observed when the LLM rewrites the wrapper header), fall back to size + section heading:
 
-### Option 2 — Filter by max file size > 50KB
+- bihourly reports: 100–110 KB, contain `# 📊 PM 双小时状态报告 #N` + `## 0`–`## 6` or `## 7` sections
+- task-polling: 15–95 KB (LLM-shaped), contain `[SILENT]` or `[ISSUE-N]`
 
-Real LLM outputs are 50-100KB. Shadow marker files are 166-200B. This excludes polling dirs that contain shadow markers.
+Pick the dir whose files have the bihourly discriminator.
 
-```python
-out = Path(r"C:/Users/Administrator/AppData/Local/hermes/profiles/handsome_company_manager/cron/output")
-real_llm_dirs = []
-for d in out.iterdir():
-    if not d.is_dir():
-        continue
-    files = list(d.glob("*.md"))
-    if not files:
-        continue
-    biggest = max(files, key=lambda f: f.stat().st_size)
-    if biggest.stat().st_size > 50_000:
-        first_line = files[0].read_text(encoding="utf-8", errors="replace").splitlines()[0]
-        real_llm_dirs.append((d, first_line.replace("# Cron Job: ", "")))
-# Either match friendly name or pick the dir with most consistent size
-bihourly_dir = next(d for d, name in real_llm_dirs if "bihourly" in name.lower())
-```
+## Option 3 — Schedule frequency
 
-### Option 3 — Schedule pattern in mtimes
+Equivalent to "max by file count" but inverted: count files per dir, then divide by schedule frequency. Bihourly = 12 fires/day; task-polling = 48 fires/day. A bihourly dir has ~4× fewer files than a task-polling dir of the same age. Use this as a sanity check, not a primary selector.
 
-Bihourly dirs have files exactly 2h apart; polling dirs have files 30min apart. More expensive to compute but unambiguous.
+## What NOT to do
 
-```python
-import statistics
+- ❌ `max(dir.iterdir() for dir in dirs, key=len)` — picks the WRONG dir (~5× more files in task-polling).
+- ❌ `min(by file count)` — picks the worker's quiet cron (maybe config-backup one-shots-per-day).
+- ❌ `max(by mtime)` — both dirs have similar recent mtimes; doesn't actually disambiguate.
 
-def is_bihourly_cadence(d: Path) -> bool:
-    files = sorted(d.glob("*.md"), key=lambda f: f.stat().st_mtime, reverse=True)[:10]
-    if len(files) < 3:
-        return False
-    deltas = []
-    for i in range(len(files) - 1):
-        deltas.append(files[i].stat().st_mtime - files[i+1].stat().st_mtime)
-    median_delta = statistics.median(deltas)
-    # 2h = 7200s ± 5 minutes
-    return abs(median_delta - 7200) < 300
-```
+## PM #217 (2026-08-04) confirmation
 
-## When to use each
+The script `scripts/check_pm_cron_liveness.py` correctly maps to the bihourly dir via the cron wrapper's `Cron Job: pm-bihourly-status-report` header. The `d26c66fbbdd0` UUID is the canonical id; the wrapper header is the canonical friendly name. Verified on the 2026-08-04 20:09 CST run.
 
-- **Default to Option 1** (friendly-name match). It's the most portable and doesn't depend on file size assumptions.
-- **Use Option 2** when you have many crons and want to filter out shadow-marker dirs in bulk.
-- **Use Option 3** only when friendly-name extraction is broken (e.g. header format changed).
+## Companion learned note (PM #217, 2026-08-04)
 
-## Verification
-
-After picking the dir, always sanity-check by reading the latest file and confirming it matches expected content:
-
-```python
-reports = sorted(bihourly_dir.glob("*.md"), key=lambda x: x.stat().st_mtime, reverse=True)
-latest = reports[0].read_text(encoding="utf-8")
-# Should contain "## Response" + a substantial section (not just "[SILENT]")
-assert "## Response" in latest, "Not a real LLM report"
-assert len(latest) > 30_000, f"Report too small ({len(latest)}B) — picked the wrong dir?"
-```
-
-If `len(latest) < 30_000` (smaller than expected for a real PM bi-hourly report), you picked a polling dir. Re-pick with the friendly-name filter.
-
-## See Also
-
-- `pm-bi-hourly-status-report.md` §5 #24 — original recipe (buggy, see this file)
-- `pm-bi-hourly-status-report.md` §2.8 — Cron output dir → friendly job name disambiguation
-- `pm-bi-hourly-status-report.md` §2.12 — per-friendly-name liveness classifier (also uses size-based classification)
-- SKILL.md "Known Fixes #13" — uppercase shadow cron duplicates explain the file-size bimodality
+The `count_consecutive_zero_activity.py` script correctly handles the "healthy idle → traffic drop" transition for the same role. Earlier reports (N=210/N=209) marked reviewer as "🟢 healthy idle / 无新验证目标" — the script does NOT count those as zeros. When reviewer later hit 0 activity without the "healthy idle" prefix (N=211+), only the unclassified zeros accumulate. So a role's trailing_run reflects "real zero activity" history, not "always silent". Rule of thumb: when reading the script's trailing_run for a role that was previously "healthy idle", the number is the count of UNCLASSIFIED zeros after the last classified-zero row — manually scroll the §3 rows to confirm the classification breakpoint.

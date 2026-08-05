@@ -359,7 +359,31 @@ Read `counts.semantic_silent`, `counts.non_silent`, and `counts.response_unparse
 
 31. **Re-query volatile state immediately before delivery.** Daily collection can take several minutes while employee crons continue firing. Just before final response, run a compact live check for: open Issue count/numbers, every open PR's `mergeable` + `mergeStateStatus`, and the 24h comment count. If any value changed, regenerate the affected rows. This is especially important before an A/B/C merge decision because `CLEAN ↔ DIRTY` can flip between initial collection and delivery.
 
-32. **Validate the report structurally and count characters, not UTF-8 bytes.** Chinese text often uses three bytes per character, so file size is not the 2500-字 budget. Before delivery verify: H1 date header, sections `## 0` through `## 8`, current CST time, four top-line activity counts, per-person rows, R/Y/G distribution, tomorrow 09:00 CST trigger, and the exact closing sentence. A practical prose-budget check strips Markdown table syntax and whitespace, then requires the remaining character count `<= 2500`; if close to the limit, trim rather than argue about counting conventions.
+32. **Validate the report structurally and count characters, not UTF-8 bytes.** Chinese text often uses three bytes per character, so file size is not the 2500-字 budget. Before delivery verify: H1 date header, sections `## 0` through `## 8`, current CST time, four top-line activity counts, per-person rows, R/Y/G distribution, tomorrow 09:00 CST trigger, and the exact closing sentence.
+
+    **Prose-count recipe (refined 2026-08-05, PM #221 daily run — the original "strips Markdown + whitespace" recipe chronically under-counts by ~80 chars because it does not strip CJK punctuation or arrows):**
+
+    ```python
+    import re
+    text = open(report_path, encoding="utf-8").read()
+
+    # BASIC (original, STILL too lenient — only strips ASCII Markdown + whitespace)
+    basic = re.sub(r"[#|*`\[\]()-]+|\s+", "", text)
+    # Empirically: 3000 chars basic ≈ 2900 chars strict — budget ~2900/2500 is the real ratio
+
+    # STRICT (recommended) — strips CJK punctuation + arrows + math symbols
+    strict = re.sub(r"[#|*`\[\]()-]+|\s+", "", text)
+    strict = re.sub(r"[→≥≤，。「」、；：！？（）【】《》\"\"''·•—–\-·+×÷=]", "", strict)
+    # This is the value that actually matches a human "2500 字" judgment
+    ```
+
+    **Target size envelope (prevents the 5-7 iteration trim loop):**
+    - Initial draft target: **~2200 strict chars** (leaves ~300-char headroom for the closing sentence + any post-collection edits)
+    - After writing the closing sentence "日报已生成,投递到 feishu home。" (+11 chars): **~2211 strict chars**
+    - Hard ceiling: **2500 strict chars** (the boss's stated budget)
+    - Trim ladder if over: (1) drop redundant `24h 评论 + 老板动作` row in §5 (already covered by `commits` row); (2) condense the prose paragraph in §7 by ~30 chars; (3) shorten issue titles in §2; (4) drop a §1 row.
+
+    **Field-name gotcha (corroborates SKILL.md GH-API field-name note):** when re-querying each PR's mergeable state via the per-PR endpoint (per #34), the JSON key is **`mergeable_state`** (string: `clean` / `dirty` / `blocked` / `unstable` / `behind`), **not** `merge_state_status`. Pair with `mergeable` (bool) for the binary verdict. Using the wrong key raises `KeyError` mid-§7 build.
 
 33. **Coordinate the daily §7 with the bihourly escalation state — DO NOT re-offer A/B/C after the bihourly has already shipped a one-liner (learned 2026-07-25).** The bihourly playbook has its own escalation ladder (`references/pm-bi-hourly-status-report.md` §2.10): 2 consecutive 2h reports = recommended PM-direct-action, 3+ consecutive = REQUIRED one-liner (no more A/B/C). The daily's own ladder is #23 above: 3 consecutive daily reports of 摸鱼 → PM-direct-action menu A/B/C. **These two ladders can collide**: when the boss is in a long deadlock, by the time today's daily fires, the boss has already seen 12+ bihourly reports — many of them already one-liners — AND yesterday's daily offered A/B/C. If today's daily also offers A/B/C, the boss sees the same question three times in three formats across 24h. **Fix (apply before writing §7):**
 
