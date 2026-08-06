@@ -176,6 +176,39 @@ os.replace(tmp, arch)
 
 **Why this beats `patch` for recovery**: a recovery `patch` call has the same fuzzy-matching risks that caused the original bug. Surgical region replacement with semantic anchors + manual split-then-rebuild sidesteps fuzzy matching entirely. Run BOTH `verify_housekeeping_structure.py` AND the count check from the previous subsection before declaring success.
 
+### Header (and trailing reminder) paragraph freshness drift (learned 2026-08-05, PM memory-cleanup cron run #18)
+
+The "Latest run: **YYYY-MM-DD**" line gets refreshed by every cron cycle, but the **diagnostic-context paragraphs below it** (Hindsight description, log-mtime stats, "Nth consecutive same-signature-day run" claim, current-signature quote) and the trailing `- Next scheduled cleanup: ...` reminder line are written by whichever cron author first drafted them — they are NOT auto-refreshed by subsequent runs. Real case on 2026-08-05: even though the "Latest run:" line correctly said `2026-08-05` (cutoff `2026-07-06`), the Hindsight-context paragraph two lines below still claimed "16th consecutive same-signature-day run" and quoted an `2026-08-03` log mtime — a 2-day-stale description of state. The trailing `- Next scheduled cleanup:` line was similarly stale ("13 consecutive runs (7-16..7-28)") even though the actual count was 18 (7-19..2026-08-05). The file mtime showed yesterday's run had happened (2026-08-04 13:07 UTC), but the textual content only described 8-03.
+
+**Why this happens**: each cron author rewrites the "Latest run:" line as a one-line `text.replace(old_latest_run_line, new_latest_run_line, 1)` call (small unique anchor, low patch-fuzzy-matching risk) but never touches the multi-line diagnostic paragraphs that follow. Those paragraphs are large blocks with high patch-fuzzy-matching risk (per the earlier `patch` tool pitfall), so successive cron authors avoid them — and they silently age.
+
+**Symptom (silent)**: `text.find("Latest run:")` shows today's date, but `text.find("consecutive same-signature-day")` shows yesterday's count and `text.find("YYYY-MM-DD HH:MM UTC")` in the diagnostic-context paragraph below shows the prior run's log-mtime, not today's. The trailing `- Next scheduled cleanup: ...` line still references a stale day range / run count.
+
+**Fix**: in the same cron cycle that updates "Latest run:" and adds the housekeeping entry, also refresh both (a) the diagnostic-context paragraph below "Latest run:" and (b) the trailing `- Next scheduled cleanup: ...` reminder line. Use `execute_code` + `text.replace(old, new, 1)` + `os.replace` for each — these are single-line / paragraph-scale replacements with low fuzzy-match risk when you anchor on the unique topic-introducing sentence ("`> Hindsight is enabled`" for the header paragraph; the literal `- Next scheduled cleanup: per the cron job cadence.` for the trailing reminder). End each `new` block with a content snapshot that ONLY mentions today's date / today's count / today's log-mtime — leave yesterday's out entirely. Do NOT preserve "history" prose inside these contextual paragraphs; the historical record lives in the housekeeping entries below.
+
+**Verification** (run before declaring success):
+```python
+from pathlib import Path
+import re
+arch = Path("~/.hermes/profiles/<profile>/memories/MEMORY_ARCHIVE.md").expanduser()
+text = arch.read_text(encoding="utf-8")
+# Today + yesterday as ISO dates
+today, yesterday = "2026-08-05", "2026-08-04"
+# The header paragraph (between "Latest run:" and "## Archive housekeeping")
+hdr_start = text.find("Latest run:")
+hdr_end = text.find("\n\n## ")
+header_paragraph = text[hdr_start:hdr_end]
+# Both dates should appear in the housekeeping entries (legitimate historical record),
+# but in the header paragraph between Latest run and ## Archive housekeeping,
+# only TODAY should appear, never yesterday.
+prior_dates_in_header = [d for d in (yesterday, "2026-08-03", "2026-08-02") if d in header_paragraph]
+today_in_header = today in header_paragraph
+assert today_in_header, "header paragraph missing today's date"
+assert not prior_dates_in_header, f"header paragraph still references stale dates: {prior_dates_in_header}"
+```
+
+The same check should apply to the trailing `- Next scheduled cleanup: ...` line: it should mention today's count or "see the latest housekeeping entry" — not a hardcoded prior-run count. If you find yourself writing `consecutive runs (YYYY-MM-DD..YYYY-MM-DD)` with hardcoded dates in either the header paragraph or the trailing reminder, use a count-from-prior-entry reference instead.
+
 ## Pre-flight housekeeping (always do before the archive sweep)
 
 These are tiny, fast checks that catch problems BEFORE they cascade into the archive decision. Skipping them has caused silent zombie states in past runs.
@@ -372,6 +405,7 @@ he.close()
 - [ ] Failure attribution is time-scoped: current-run signatures come from runner output or log lines at/after this attempt's start time; older appended log signatures are labeled historical context
 - [ ] After a failed embedded-daemon attempt, any fresh 0-byte Hindsight lock was handled safely: verify the configured port is not listening before removal; otherwise leave it untouched
 - [ ] Any active-memory fact contradicted by direct pre-flight evidence was corrected narrowly and its internal date refreshed; archive header/housekeeping describe the correction
+- [ ] **Header contextual paragraphs + trailing reminder are fresh (not stale from a prior run)**: the diagnostic-context paragraph below "Latest run:" and the trailing `- Next scheduled cleanup: ...` line both describe THIS run's date / count / log-mtime, NOT a prior run's. Search for yesterday's date in the header paragraph (between "Latest run:" and "## Archive housekeeping") and the trailing reminder — neither should contain it. See the Header (and trailing reminder) paragraph freshness drift pitfall.
 - [ ] `USER.md` unchanged (only update on actual user-profile changes, not on mtime)
 
 ## HF_TOKEN state detection — distinguish absent vs commented vs empty
