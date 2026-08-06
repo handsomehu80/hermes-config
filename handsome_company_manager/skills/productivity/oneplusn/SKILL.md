@@ -656,6 +656,7 @@ Generalized: any recipe that depends on `git fetch` (`git merge-tree`, `git diff
 ### Templates and References
 
 - `templates/pm-decision-table.md` — the v1→v2 拍板 table format, copy-paste-ready
+- [`references/pm-bi-hourly-sustained-fold.md`](references/pm-bi-hourly-sustained-fold.md) — companion to §5 #20: what to do when the §5 single-character fold has been sustained for 3+ consecutive 2h reports with no boss action (team-retired transition proposal: close-out offer, A/B framing, anti-patterns). Loaded when trailing_run ≥ 10 AND fold has been at single-character for ≥3 fires.
 - `templates/pm-dispatch-body.md` — the Issue body template PM uses to派单 to dev/reviewer
 - `templates/pm-reassign-body.md` — the reassign-with-context body template
 - `references/pm-operations-playbook.md` — full playbook with worked examples from real sessions (including the Loop Engineering Snake game coordination that produced the 8-vs-6 features decision)
