@@ -407,6 +407,7 @@ he.close()
 - [ ] Any active-memory fact contradicted by direct pre-flight evidence was corrected narrowly and its internal date refreshed; archive header/housekeeping describe the correction
 - [ ] **Header contextual paragraphs + trailing reminder are fresh (not stale from a prior run)**: the diagnostic-context paragraph below "Latest run:" and the trailing `- Next scheduled cleanup: ...` line both describe THIS run's date / count / log-mtime, NOT a prior run's. Search for yesterday's date in the header paragraph (between "Latest run:" and "## Archive housekeeping") and the trailing reminder — neither should contain it. See the Header (and trailing reminder) paragraph freshness drift pitfall.
 - [ ] `USER.md` unchanged (only update on actual user-profile changes, not on mtime)
+- [ ] **Cron output sanity check (size + skill-heading-pattern)**: the cron output file under `<profile_home>/cron/output/<job_id>/` should be ~5–10KB and contain **0** of the known skill-heading patterns (`## Pitfall`, `## Operational`, `## Hard Constraints`, `## Known Fixes`, `## Per-Agent`, `## PM Mode`). A file ≥50KB with ≥2 of these headings is a LLM drift — the LLM regurgitated loaded oneplusn skill content instead of executing the workflow. Verified discriminator + re-anchor recipe in `references/cron-output-canonical.md`. The memory-cleanup cron has produced 60–100KB drift outputs across many past cycles (e.g., 2026-07-27..2026-08-05); a 5–10KB clean report is the canonical target.
 
 ## HF_TOKEN state detection — distinguish absent vs commented vs empty
 
@@ -443,6 +444,7 @@ History from this skill's housekeeping: the 2026-07-11 .. 2026-07-17 entries all
 
 - `references/hindsight-bank.md` — Hindsight config schema, full `llm_provider` list, env-var matrix, and log signatures for common failure modes
 - `references/lock-file-cleanup.md` — the 3 distinct `.lock` families (`memories/*.lock` vs `~/.hindsight/profiles/*.lock`), detection recipe, housekeeping structure verification, gateway liveness vs Hindsight skip distinction
+- `references/cron-output-canonical.md` — canonical structure (~5–10KB) for a clean memory-cleanup cron output + drift discriminator (size + skill-heading-match). The memory-cleanup cron has drifted for many past cycles (60–100KB SKILL.md regurgitation); use this reference as the authoring target and as the threshold check on past runs.
 - `scripts/hindsight_reflect.py` — re-runnable `reflect()` runner. Loads the profile `.env`, overrides provider env vars, clears stale locks, starts the daemon, calls `reflect()`, and reports new vs existing mental models. Use instead of pasting the recipe above.
 - `scripts/verify_housekeeping_structure.py` — reads `MEMORY_ARCHIVE.md`, locates the `## Archive housekeeping` section, and verifies all top-level date bullets are at the same indent level (siblings) with sub-bullets at exactly indent=2. Catches the nesting pitfall described above. Read-only — never modifies the file.
 

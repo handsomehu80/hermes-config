@@ -364,7 +364,7 @@ The `.claude/` package at `D:\onboarding` is the source of truth. This Hermes in
 
 ## Pitfall: Cron `workdir` drift is silent until it isn't (learned 2026-07-14)
 
-Every cron job registered during `oneplusn init` carries an absolute `workdir` field in `<profile_home>/cron/jobs.json` — typically the team work-dir (e.g. `D:\onboarding\handsome-s-company`). If that directory gets cleaned, deleted by a migration, or never existed in the first place, **`hermes cron list` still shows `ok` and `last_status=ok`** — the cron "fires", the LLM prompt runs, but the PM-employee's `gh issue list` and the backup script's `Path.cwd()` both point at nothing. Symptoms:
+Two failure modes: (a) MISSING dir (cleaned/deleted/never existed) → cron fires, LLM runs, `gh issue list`/`Path.cwd()` point at nothing, `last_status=ok` lies; (b) **EXISTS-but-NOT-git-root** (PM #248, 2026-08-07) — `workdir=D:\onboarding\<team>` is real but git root is subdir `agent_workflow/.git`; `git log` fails `fatal: not a git repository`, cron stays green. Surfaces only in commit-evidence rows. Fix: set workdir to actual git root, or `git init` team root, or drop workdir.
 
 - `cron/output/<job_id>/` stops getting new `.md` files (or keeps producing files dated months ago)
 - LLM responses contain "directory not found" / "No such file or directory" buried in the output
