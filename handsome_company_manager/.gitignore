@@ -67,3 +67,22 @@ processes.json
 *.bak.*
 lsp/
 cron/output/
+
+# Runtime binaries and node runtime (regenerable, 100MB+)
+bin/
+node/
+
+# Cron runtime state
+cron/executions.db
+cron/notepad.db
+cron/catch_up_occurrences
+cron/ticker_heartbeat
+cron/ticker_last_success
+cron/usage_audit.jsonl
+
+# Gateway / cache / build stamps
+gateway-starts.log
+state/
+web-ui-build-stamp.json
+ollama_cloud_models_cache.json
+provider_models_cache.json

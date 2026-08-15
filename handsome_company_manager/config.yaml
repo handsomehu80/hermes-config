@@ -1,7 +1,7 @@
 model:
-  default: MiniMax-M3
-  provider: minimax-cn
-  base_url: https://api.minimaxi.com/v1
+  default: glm-5.2
+  provider: zai
+  base_url: https://open.bigmodel.cn/api/coding/paas/v4
 providers: {}
 fallback_providers: []
 credential_pool_strategies: {}
