@@ -22,15 +22,15 @@
       "schedule_display": "15,45 * * * *",
       "repeat": {
         "times": null,
-        "completed": 1285
+        "completed": 1343
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-07-12T21:38:50.188451+08:00",
-      "next_run_at": "2026-08-15T15:15:00+08:00",
-      "last_run_at": "2026-08-15T14:51:12.569592+08:00",
+      "next_run_at": "2026-08-16T20:15:00+08:00",
+      "last_run_at": "2026-08-16T19:45:58.882536+08:00",
       "last_status": "ok",
       "last_error": null,
       "last_delivery_error": null,
@@ -63,23 +63,24 @@
       "schedule_display": "0 20 * * *",
       "repeat": {
         "times": null,
-        "completed": 26
+        "completed": 28
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-07-12T21:38:50.647582+08:00",
-      "next_run_at": "2026-08-15T20:00:00+08:00",
-      "last_run_at": "2026-08-10T20:00:47.038896+08:00",
+      "next_run_at": "2026-08-17T20:00:00+08:00",
+      "last_run_at": "2026-08-15T20:01:44.983313+08:00",
       "last_status": "error",
-      "last_error": "RuntimeError: HTTP 429: 已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。 (2056)",
+      "last_error": "RuntimeError: HTTP 429: 该模型当前访问量过大，请您稍后再试",
       "last_delivery_error": null,
       "deliver": "local",
       "origin": null,
       "enabled_toolsets": null,
       "workdir": "D:\\onboarding\\handsome-s-company",
-      "profile": null
+      "profile": null,
+      "fire_claim": null
     },
     {
       "id": "996743153888",
@@ -103,23 +104,24 @@
       "schedule_display": "0 21 * * *",
       "repeat": {
         "times": null,
-        "completed": 26
+        "completed": 28
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-07-12T21:38:51.108246+08:00",
-      "next_run_at": "2026-08-15T21:00:00+08:00",
-      "last_run_at": "2026-08-10T21:01:01.206971+08:00",
-      "last_status": "error",
-      "last_error": "RuntimeError: HTTP 429: 已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。 (2056)",
+      "next_run_at": "2026-08-16T21:00:00+08:00",
+      "last_run_at": "2026-08-15T21:02:53.102448+08:00",
+      "last_status": "ok",
+      "last_error": null,
       "last_delivery_error": null,
       "deliver": "local",
       "origin": null,
       "enabled_toolsets": null,
       "workdir": "D:\\onboarding\\handsome-s-company",
-      "profile": null
+      "profile": null,
+      "fire_claim": null
     },
     {
       "id": "d26c66fbbdd0",
@@ -143,17 +145,17 @@
       "schedule_display": "0 */2 * * *",
       "repeat": {
         "times": null,
-        "completed": 300
+        "completed": 315
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-07-14T16:09:46.662783+08:00",
-      "next_run_at": "2026-08-15T16:00:00+08:00",
-      "last_run_at": "2026-08-11T16:00:26.525277+08:00",
-      "last_status": "error",
-      "last_error": "RuntimeError: HTTP 429: 已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。 (2056)",
+      "next_run_at": "2026-08-16T22:00:00+08:00",
+      "last_run_at": "2026-08-16T18:04:04.160683+08:00",
+      "last_status": "ok",
+      "last_error": null,
       "last_delivery_error": null,
       "deliver": "feishu",
       "origin": {
@@ -164,7 +166,8 @@
       },
       "enabled_toolsets": null,
       "workdir": "D:\\onboarding\\handsome-s-company",
-      "profile": null
+      "profile": null,
+      "fire_claim": null
     },
     {
       "id": "0cbfcf7b360e",
@@ -188,17 +191,17 @@
       "schedule_display": "0 15 * * *",
       "repeat": {
         "times": null,
-        "completed": 26
+        "completed": 28
       },
       "enabled": true,
       "state": "scheduled",
       "paused_at": null,
       "paused_reason": null,
       "created_at": "2026-07-15T08:27:15.546848+08:00",
-      "next_run_at": "2026-08-15T15:00:00+08:00",
-      "last_run_at": "2026-08-11T15:01:18.401200+08:00",
-      "last_status": "error",
-      "last_error": "RuntimeError: HTTP 429: 已达到 Token Plan 用量上限：请升级 Token Plan 套餐或购买积分补充用量。 (2056)",
+      "next_run_at": "2026-08-17T15:00:00+08:00",
+      "last_run_at": "2026-08-16T15:07:05.190692+08:00",
+      "last_status": "ok",
+      "last_error": null,
       "last_delivery_error": null,
       "deliver": "feishu",
       "origin": {
@@ -209,8 +212,9 @@
       },
       "enabled_toolsets": null,
       "workdir": "D:\\onboarding\\handsome-s-company",
-      "profile": null
+      "profile": null,
+      "fire_claim": null
     }
   ],
-  "updated_at": "2026-08-15T14:51:12.570864+08:00"
+  "updated_at": "2026-08-16T20:00:15.980386+08:00"
 }

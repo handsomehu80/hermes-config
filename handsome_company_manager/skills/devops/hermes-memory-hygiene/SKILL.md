@@ -261,6 +261,8 @@ When `memory.provider: hindsight` is set in the active profile's `config.yaml` a
 
 ### Detect
 
+**⚠ Architecture change (verified 2026-08-15, hermes-agent 0.20.0): the embedded `hindsight` daemon package no longer exists.** The 0.20.x venv ships only `hindsight_client` 0.9.0 — a pure HTTP API client whose `Hindsight` class talks to an **external server** (default `http://localhost:8888`). `import hindsight` / `HindsightEmbedded` / the old exit-3 "re-exec to venv python" advice are all obsolete: even the venv python returns `No module named 'hindsight'`. The old failure signatures (cross-encoder HF download gate, `PostgreSQLBackend.initialize()` gate) cannot occur anymore. Under 0.20.x: (1) probe port 8888 for the external server; (2) if listening, call `client.reflect(bank_id=..., query=...)` via `hindsight_client`; (3) if not listening, skip reflect() and record "external Hindsight server not running" in housekeeping — remediation options become (A) stand up an external Hindsight server, (B) switch `memory.provider` away from hindsight, (C) markdown-only. Do NOT burn 180s waiting for an embedded daemon that is gone.
+
 **Source of truth is the profile `config.yaml`, NOT `~/.hermes/hindsight/config.json`.** The Hindsight Python constructor reads `llm_provider` / `llm_model` / `llm_api_key` / `llm_base_url` from its own kwargs + env vars, so the global `config.json` is just one of several config paths and may be absent on a freshly-migrated profile.
 
 ```yaml

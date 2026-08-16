@@ -9,21 +9,9 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-08-07** — no-op archive (cutoff 2026-07-08). Dated active entries remain `1+N 数字员工集成(2026-07-08)` (exactly 30d at boundary, still active) and `Credential state (2026-07-20)` (18d); no entries exceed the 30-day window. Undated current-state facts (Host / Hermes v0.15.1 / Agent Team / PM 铁律+陷阱 / PM cron) stay active. USER.md unchanged.
+> Latest run: **2026-08-15** (2nd sweep, 13:01 UTC — no-op) — 1st sweep archived `1+N 数字员工集成(2026-07-08)` (38d, past the 30-day cutoff 2026-07-16). Corrected two stale facts in MEMORY.md per direct evidence: Hermes Agent v0.15.1→**0.20.0** and default model MiniMax-M3/minimax-cn→**glm-5.2/zai** (`config.yaml` `model:` verified this run). Undated current-state facts stay active. USER.md unchanged.
 >
-> Hindsight is enabled (`memory.provider: hindsight` per `config.yaml`) and installed (`hindsight-all 0.8.4` importable from `<hermes-agent>/venv/Lib/site-packages/hindsight/`). `reflect()` **attempted per user cron prompt this cycle** ("若安装了 hindsight,调用其优化能力做高级整理"); daemon timed out at 180s (exit 1). Canonical runner verified at `<profile_home>/skills/devops/hermes-memory-hygiene/scripts/hindsight_reflect.py` (9960B) on disk.
->
-> Current-run signature (`~/.hindsight/profiles/handsome_company_manager.log` mtime **2026-08-07 21:02:02 UTC**, size **45341B**, +594B vs 8-06): exactly 2 new lines at/after this run's start —
-> - `2026-08-07 21:02:02,777 - WARNING - hindsight_api.engine.llm_trace - LLM trace write failed for scope=verification: PostgreSQLBackend is not initialized. Call initialize() first.`
-> - `2026-08-07 21:02:03,770 - WARNING - huggingface_hub.utils._http - Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.`
->
-> 19th consecutive same-signature-day run (since 2026-07-19). Cross-profile observation (`handsome_company_developer.log` mtime 0m): dev daemon **reached LLM init** this cycle (`Connection verified: minimax/MiniMax-M3` at 21:04:02) and ran for ~60s before closing — dev didn't fail at the HF gate this cycle, suggesting intermittent HF Hub rate-limit, NOT a permanent block.
->
-> **Correction to the 8-06 upstream-gate-drift finding**: full daemon timeout evidence this cycle (HF Hub warning at +1s after startup + 177s wait → final timeout) shows the daemon dies at the **cross-encoder HF Hub download** stage (NOT at `PostgreSQLBackend.initialize()` — that warning is a misleading trace-write side-effect that fires regardless of whether the daemon reached PostgreSQL init). Re-ranked remediation: **restore (a) `set HF_TOKEN` to #1** (HF Hub warning text literally names the missing token), demote (b) `local_external` and (c) `cloud` to fallbacks. Cross-profile dev success this cycle FURTHER supports (a) — HF Hub rate-limit is the gate, and authenticated HF requests don't hit it.
->
-> Stale 0-byte `~/.hindsight/profiles/handsome_company_manager.lock` (mtime 2026-08-07 21:02:02 UTC, from this cycle's attempt) removed after confirming port 9807 not listening (Test-NetConnection timeout). Cross-profile `handsome_company_developer.lock` left untouched.
->
-> `HF_TOKEN` state in `~/.hermes/profiles/handsome_company_manager/.env`: **commented out** (verified via §HF_TOKEN state-detection recipe). Boss action item (a) from 7-13..8-06 is still pending — **19 consecutive runs** (7-19..2026-08-07) with no remediation chosen. With this cycle's HF Hub warning text re-surfacing, picking (a) should now have higher expected success rate than at 8-04.
+> Hindsight status this cycle: **environment changed** — hermes-agent 0.20.0's venv no longer ships the embedded `hindsight` daemon (only `hindsight_client` 0.9.0, an HTTP client defaulting to `http://localhost:8888`, which is NOT listening). Canonical runner exists (9960B) but exits 3 `No module named 'hindsight'`. `reflect()` therefore not callable; markdown archive remains the authoritative store. See the 2026-08-15 housekeeping entry for the re-ranked (A/B/C) remediation for the NEW architecture — the old (a/b/c) table is obsolete.
 
 
 ## 2026-06-03 — Toolset state snapshot
@@ -55,6 +43,12 @@ Manual location: `~/AppData/Local/hermes/USAGE.md`.
 which traps parent-linked QA tasks. PM must unblock manually, or fix
 SOUL.md. Worth re-testing against current kanban worker code before
 trusting this trick.
+
+---
+
+## 2026-07-08 — 1+N 数字员工集成（fork 到 Hermes）
+
+1+N 数字员工集成(2026-07-08):fork 到 Hermes。Skill `~/AppData/Local/hermes/skills/productivity/oneplusn/`,9 个 bash 命令在 `~/AppData/Local/hermes/bin/oneplusn*`(cp 副本,Windows ln-sf 坏),cron 30 分钟 + reaper 1 小时(hermes cron --no-agent)。Eval 10/10 PASS。配套 skill `claude-package-to-hermes-skill` 在 `devops/`,记 .claude 包移植方法论 + Windows 路径陷阱 + bash 包装 + cron + evals 模板。
 
 ---
 
@@ -250,6 +244,11 @@ trusting this trick.
   - Markdown archive remains the authoritative store. Will keep attempting `reflect()` per the cron-prompt-override rule (user cron prompt explicitly says "若安装了 hindsight,调用其优化能力做高级整理" — attempt + document each cycle); attempts continue so we don't lose the diagnostic signal of gate drift.
 
 
+- 2026-08-15 (2nd run, 13:01 UTC) — no-op archive (cutoff 2026-07-16). No entry exceeds 30d: oldest dated active entry is `Credential state (2026-07-20)` (26d). USER.md unchanged.
+  - Pre-flight: 0 stale `memories/*.lock` files. Tri-state liveness: `agent.log` 0m / `errors.log` 59m / `gateway.log` 371m — gateway ALIVE (stale gateway.log = logging artifact per tri-state rule).
+  - Hindsight: `memory.provider: hindsight` still set; external server port **8888 NOT listening** (2s timeout re-verified this run). Per the 1st-run architecture finding (embedded daemon removed in hermes-agent 0.20.0, only `hindsight_client` 0.9.0 ships), `reflect()` not callable — reported per option (C) markdown-only; `~/.hindsight/` untouched since 8-07. No runner re-attempt needed (signature unchanged, ~6h after 1st run).
+  - Boss action (unchanged from 1st run): (A) stand up external Hindsight server on 8888 / (B) switch memory.provider to file / (C) keep markdown-only. Old HF_TOKEN item stays CLOSED as obsolete.
+
 - Next scheduled cleanup: per the cron job cadence. Boss action for unlocking `reflect()`: option (b) `local_external` mode is now the most direct unblock for the current PostgreSQL init gate; (a) `HF_TOKEN` is DOWNGRADED (addresses downstream symptom no longer in active failure path); (c) `cloud` mode is the bypass alternative. Hindsight blocker has now persisted for 18 consecutive runs (2026-07-19..2026-08-05).
 
 
@@ -286,4 +285,15 @@ trusting this trick.
   - Markdown archive remains the authoritative store. Will keep attempting `reflect()` per cron-prompt-override rule (user prompt explicitly mandates "若安装了 hindsight,调用其优化能力做高级整理") — attempts continue so we don't lose the diagnostic signal of gate drift / non-drift.
 
 
-- Next scheduled cleanup: per the cron job cadence. Latest run was **2026-08-07** (19th consecutive same-signature-day Hindsight skip). Boss action for unlocking `reflect()`: option **(a) `set HF_TOKEN=*** should be re-promoted to #1 based on this cycle's daemon-stderr evidence (HF Hub warning explicitly named the missing token; PostgreSQL warning is misleading side-effect).
+- 2026-08-15 — archived `1+N 数字员工集成(2026-07-08)` to the section above (38d > 30-day cutoff 2026-07-16). Corrected 2 stale active-memory facts per direct pre-flight evidence: Hermes Agent v0.15.1→**0.20.0** (venv `importlib.metadata` verified), default model MiniMax-M3/minimax-cn→**glm-5.2/zai** (`config.yaml model:` verified). USER.md unchanged.
+  - Pre-flight: 0 stale `memories/*.lock` files (none existed). Tri-state liveness: `agent.log` 0m / `errors.log` 3m / `gateway.log` 11m — gateway ALIVE, no follow-up needed.
+  - **NEW failure signature — environment changed since the 2026-08-07 run (NOT the 20-cycle HF/PostgreSQL embedded-daemon gate)**: hermes-agent upgraded 0.15.1→0.20.0; venv site-packages no longer contains `hindsight` / `hindsight-all 0.8.4` — only `hindsight_client` 0.9.0 (pure HTTP API client, default `http://localhost:8888`). Canonical runner `<profile_home>/skills/devops/hermes-memory-hygiene/scripts/hindsight_reflect.py` verified on disk (9960B), invoked with venv python → **exit 3, `No module named 'hindsight'`**. Ports 8888 and 9807 both confirmed NOT listening. `~/.hindsight/profiles/*.log` untouched since 8-07 (~185h stale).
+  - **Old (a/b/c) remediation table is OBSOLETE** — it addressed embedded-daemon gates (HF_TOKEN download / PostgreSQLBackend init / cloud mode) that no longer exist in the 0.20.0 architecture. **Re-ranked remediation for the NEW architecture**:
+    1. **(A) Run an external Hindsight server** (0.20.0's intended path; client talks plain HTTP to `localhost:8888`) — then `reflect()` is a normal API call and bank persistence resumes.
+    2. **(B) Switch `memory.provider` away from `hindsight`** in config.yaml to the file/markdown provider if no server is planned — removes the risk of silent memory-tool backend failures while the server is down.
+    3. **(C) Leave as-is** — markdown MEMORY.md/USER.md remain the authoritative store (verified injected and current this session); reflect() deferred indefinitely at zero cost.
+  - Diagnostic implication: this is a **breaking architectural change**, not gate drift — the 21-cycle "keep attempting, watch for signature evolution" loop has resolved: the embedded daemon simply no longer exists. Next cycle should NOT re-attempt the old runner expecting the old signature; re-verify whether an external server has been stood up (port 8888) and otherwise report per option (C).
+  - Char counts: MEMORY.md 1539/2200 (70%), USER.md unchanged (1075/1375 chars per prior runs).
+
+
+- Next scheduled cleanup: per the cron job cadence. Latest run was **2026-08-15** — architecture-change signature (embedded daemon removed by hermes-agent 0.20.0). Boss action for restoring `reflect()`: pick (A) external Hindsight server / (B) switch provider to file / (C) keep markdown-only. The old HF_TOKEN action item is CLOSED as obsolete.
