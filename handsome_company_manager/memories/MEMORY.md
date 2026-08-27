@@ -6,7 +6,7 @@ Hermes Agent v0.20.0, install at C:\Users\Administrator\AppData\Local\hermes\her
 
 §
 
-Credential state (2026-08-16): profile `.env` contains `MINIMAX_CN_API_KEY` and `GITHUB_TOKEN`; GitHub CLI is usable. `HF_TOKEN` is present but commented out (inactive). Other provider credentials were not re-validated in this cleanup—do not infer their availability from older snapshots.
+Credential state (2026-08-27): profile `.env` contains `MINIMAX_CN_API_KEY` and `GITHUB_TOKEN`; GitHub CLI is usable. `HF_TOKEN` is present but commented out (inactive). Other provider credentials were not re-validated in this cleanup—do not infer their availability from older snapshots.
 
 §
 
