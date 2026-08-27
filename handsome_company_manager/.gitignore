@@ -86,3 +86,6 @@ state/
 web-ui-build-stamp.json
 ollama_cloud_models_cache.json
 provider_models_cache.json
+
+# Transient cron polling scratch file (contains private-org issue data, repo is public)
+cron/tmp_issues.json
