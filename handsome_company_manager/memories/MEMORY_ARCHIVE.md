@@ -9,9 +9,9 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-08-15** (2nd sweep, 13:01 UTC — no-op) — 1st sweep archived `1+N 数字员工集成(2026-07-08)` (38d, past the 30-day cutoff 2026-07-16). Corrected two stale facts in MEMORY.md per direct evidence: Hermes Agent v0.15.1→**0.20.0** and default model MiniMax-M3/minimax-cn→**glm-5.2/zai** (`config.yaml` `model:` verified this run). Undated current-state facts stay active. USER.md unchanged.
+> Latest run: **2026-08-17** — no-op sweep (cutoff 2026-07-18; MEMORY.md has 5 entries, none carries an internal date older than the cutoff — the only pre-cutoff date found, 2026-07-09 inside the 3-profile-team entry, is a historical annotation whose entry was re-verified 2026-08-16, so it stays). USER.md untouched (durable user profile, no internal dates). Archive itself re-dated and re-verified. Hindsight re-probed below.
 >
-> Hindsight status this cycle: **environment changed** — hermes-agent 0.20.0's venv no longer ships the embedded `hindsight` daemon (only `hindsight_client` 0.9.0, an HTTP client defaulting to `http://localhost:8888`, which is NOT listening). Canonical runner exists (9960B) but exits 3 `No module named 'hindsight'`. `reflect()` therefore not callable; markdown archive remains the authoritative store. See the 2026-08-15 housekeeping entry for the re-ranked (A/B/C) remediation for the NEW architecture — the old (a/b/c) table is obsolete.
+> Hindsight status this cycle: re-probed 2026-08-17 13:03 UTC per cron prompt — `hindsight_client` 0.9.x present in hermes venv (public surface: Hindsight class with reflect/retain/recall/get_version); server probe `Cannot connect to host 127.0.0.1:8888 [远程计算机拒绝网络连接]` — port 8888 not listening, same signature as 2026-08-15/16. `reflect()` not callable; markdown archive remains the authoritative store. Remediation menu unchanged: (A) stand up external Hindsight server / (B) switch `memory.provider` away from hindsight / (C) keep markdown-only. No boss decision needed.
 
 
 ## 2026-06-03 — Toolset state snapshot
@@ -249,8 +249,6 @@ trusting this trick.
   - Hindsight: `memory.provider: hindsight` still set; external server port **8888 NOT listening** (2s timeout re-verified this run). Per the 1st-run architecture finding (embedded daemon removed in hermes-agent 0.20.0, only `hindsight_client` 0.9.0 ships), `reflect()` not callable — reported per option (C) markdown-only; `~/.hindsight/` untouched since 8-07. No runner re-attempt needed (signature unchanged, ~6h after 1st run).
   - Boss action (unchanged from 1st run): (A) stand up external Hindsight server on 8888 / (B) switch memory.provider to file / (C) keep markdown-only. Old HF_TOKEN item stays CLOSED as obsolete.
 
-- Next scheduled cleanup: per the cron job cadence. Boss action for unlocking `reflect()`: option (b) `local_external` mode is now the most direct unblock for the current PostgreSQL init gate; (a) `HF_TOKEN` is DOWNGRADED (addresses downstream symptom no longer in active failure path); (c) `cloud` mode is the bypass alternative. Hindsight blocker has now persisted for 18 consecutive runs (2026-07-19..2026-08-05).
-
 
 - 2026-08-06 — no-op archive (cutoff 2026-07-07). Dated active entries remain `1+N 数字员工集成(2026-07-08)` (29d), `Credential state (2026-07-20)` (17d), and the dated `2026-07-09`/`2026-07-13` markers inside USAGE/USER references; no entries exceed the 30-day window. Undated current-state facts (Host / Hermes v0.15.1 / Agent Team / PM 铁律+陷阱 / PM cron) stay active. USER.md unchanged.
   - Pre-flight: 0 stale `memories/*.lock` to clean. Tri-state liveness: `agent.log` (4.3MB) touched this run; `errors.log` recent; `gateway.log` ~47h stale (logging artifact, NOT gateway-down per tri-state rule — `agent.log` activity proves cron+agent loop is alive). Port 9807 confirmed NOT listening (TimeoutError); active-profile lock `C:\Users\Administrator\.hindsight\profiles\handsome_company_manager.lock` absent (last removed by 8-05 run; this cycle did NOT produce a new lock since the daemon died so quickly).
@@ -296,4 +294,14 @@ trusting this trick.
   - Char counts: MEMORY.md 1539/2200 (70%), USER.md unchanged (1075/1375 chars per prior runs).
 
 
-- Next scheduled cleanup: per the cron job cadence. Latest run was **2026-08-15** — architecture-change signature (embedded daemon removed by hermes-agent 0.20.0). Boss action for restoring `reflect()`: pick (A) external Hindsight server / (B) switch provider to file / (C) keep markdown-only. The old HF_TOKEN action item is CLOSED as obsolete.
+
+- 2026-08-16 — no-op sweep (30-day cutoff 2026-07-17; MEMORY.md has no entry dated before it) + 1 evidence-backed correction.
+  - Survey: 6 active entries; only one carries an internal date (`Credential state (2026-07-20)` — 27d, inside window) and was re-verified true this run (MINIMAX_CN_API_KEY/GITHUB_TOKEN set, HF_TOKEN commented out), date refreshed to 2026-08-16. `Hermes Agent v0.20.0` and `glm-5.2/zai` re-confirmed current. Nothing to archive.
+  - **Correction**: `4-profile Agent Team (pm/eng/qa/ast)` → **3-profile (manager/developer/reviewer)**. Disk evidence: `~/AppData/Local/hermes/profiles/` contains exactly `handsome_company_manager` + `handsome_company_developer` + `handsome_company_reviewer` (no eng/qa/ast dirs). Kanban block re-verified in config.yaml (`dispatch_in_gateway: true`, `dispatch_interval_seconds: 60`); `USAGE.md` exists at `~/AppData/Local/hermes/USAGE.md` (15923B).
+  - Pre-flight: 0 stale `memories/*.lock` (none exist). Tri-state liveness: `agent.log` 0m / `errors.log` 50m / `gateway.log` 1811m stale → gateway ALIVE (agent.log fresh; gateway.log silence is a logging artifact per 2026-07-19 tri-state rule), no follow-up.
+  - Cron identity check: this fire = `oneplusn-PM-memory-cleanup` 996743153888 `0 21 * * *`; all 5 PM cron jobs last_status=ok; latest memory-cleanup output before this run = 2026-08-15_21-02-53.md (daily cadence holding).
+  - Hindsight (prompt-mandated attempt, bounded 60s): venv `hindsight_client` 0.9.0 import OK; `Hindsight(base_url=http://localhost:8888)` → `ClientConnectorError: Cannot connect to host localhost:8888 [远程计算机拒绝网络连接]` (probe 13:06:06–13:06:09 UTC). Same signature family as 8-15 (external server absent in 0.20.x architecture) — no new gate, no signature evolution. `~/.hindsight/profiles/*.log` untouched since 8-07 (~9d stale), consistent. reflect() skipped; markdown archive authoritative.
+  - Housekeeping hygiene: entry appended as sibling at indent 0 via marker-anchor insertion with leading blank line (boundary-safety pattern); header paragraphs + trailing reminder rewritten to contain only today's facts.
+  - Char counts: MEMORY.md 1832/2200 (83%), USER.md unchanged (1392/1375 over-limit unchanged — timeless content, no action).
+
+- Next scheduled cleanup: per the cron job cadence. Latest run was **2026-08-16** — no-op archive; one stale fact corrected (4-profile→3-profile). Hindsight reflect() still blocked by absent external server (port 8888); boss decision menu (A/B/C) unchanged since 2026-08-15.

@@ -121,6 +121,12 @@ The `text[:idx] + new_entry + text[idx:]` pattern silently concatenates if `idx`
 
 **Symptom (silent)**: `verify_housekeeping_structure.py` reports `✓ Housekeeping structure OK` AND file size grew by the expected amount AND top-level count went from N to N+1 — but a manual `grep "^- 2026-08-03"` shows the new date string lives INSIDE a longer previous-entry line instead of as its own top-level line. **Always do a manual grep for the new entry's first-line string after every patch** — even if `verify_housekeeping_structure.py` passed.
 
+#### Duplicate `- Next scheduled cleanup:` copies — `find()` hits a MIDDLE copy, entry lands mid-file (learned 2026-08-16, PM memory-cleanup cron run #20)
+
+Historical runs can leave **more than one** `- Next scheduled cleanup:` line in the file (a prior run inserted its entry before an existing reminder but failed to remove the older copy). `text.find("\n- Next scheduled cleanup:")` returns the FIRST copy — which may sit mid-file — so the new entry gets inserted between old entries, breaking chronological order. Real case: 2026-08-16 run found reminders at lines 262 (stale, from a ~8-06 run, still pitching the obsolete `local_external` option) and 309 (authoritative tail); the insertion anchored on line 262 and the new `- 2026-08-16` entry landed before the `- 2026-08-06` entries. Structure checker still passed (all siblings) — only chronological order + manual grep position revealed it.
+
+**Fix pattern**: (1) enumerate ALL reminder lines with `[i for i,l in enumerate(lines) if l.startswith("- Next scheduled cleanup:")]`; (2) insert before the LAST one (`max(...)`, not `find`); (3) delete the stale duplicate reminder lines (they carry outdated boss-action menus that misinform); (4) post-verify: exactly 1 reminder remains, and the new entry's line number is greater than every other top-level date's line number.
+
 #### `verify_housekeeping_structure.py` has a content-merge blind spot (learned 2026-08-03)
 
 The verify script checks:
