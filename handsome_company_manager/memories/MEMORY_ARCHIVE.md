@@ -9,10 +9,9 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-08-27** — no-op sweep (cutoff 2026-07-28; MEMORY.md has 5 active entries, none carries an internal date older than the cutoff — the 2026-07-09 inside the 3-profile-team entry is a historical annotation whose entry was re-verified, so it stays). Credential-state entry re-verified true this run (MINIMAX_CN_API_KEY set, GITHUB_TOKEN set, HF_TOKEN commented out) and its internal date refreshed to 2026-08-27. USER.md untouched. **Ledger-gap repair this run**: the memory-cleanup cron itself was dead/drifting for a 10-day stretch ending yesterday (jobs.json last_status=error; 8-18/8-24 fires emitted 103-107KB skill-dump outputs with no report structure and appended no housekeeping entries); this run resumes the ledger — see the 2026-08-27 housekeeping entry for evidence. Hindsight re-probed below.
+> Latest run: **2026-08-27 (21:00 CST 计划触发, 当日第 2 次 fire)** — no-op sweep (cutoff 2026-07-28; MEMORY.md 5 条活跃条目, 无一内嵌日期早于 cutoff; 3-profile 条目里的 2026-07-09 是历史注记, 条目已复核, 保留)。本 fire 直接核盘复核全部事实均成立: memory.provider=hindsight、v0.20.0、3 个 profile 目录、USAGE.md 在位; agent.log 0m 新鲜 (gateway 存活, gateway.log 363m 沉默属日志伪象)。USER.md 未动。今晨 15:08 CST 恢复运行已修复 8-18..8-26 账本断档并刷新凭据条目日期 — 本 fire 在其上为干净 no-op。
 >
-> Hindsight status this cycle: re-probed 2026-08-27 07:05 UTC per cron prompt — `memory.provider: hindsight` still set in config.yaml; raw socket probe 127.0.0.1:8888 refused (external Hindsight server absent, same signature family as every prior 0.20.x probe — see housekeeping entries); `hindsight_client` 0.9.0 importable but its async client cannot start in this runner environment ('This event loop is already running' wrapper artifact — socket probe is the authoritative signal). `reflect()` not callable; markdown archive remains the authoritative store. Remediation menu unchanged: (A) stand up external Hindsight server / (B) switch `memory.provider` away from hindsight / (C) keep markdown-only (current de-facto state, zero cost). No boss decision needed.
-
+> Hindsight status this cycle: 2026-08-27 13:01 UTC 探测 — 端口 8888 拒连 (外部服务器缺席, 与 0.20.x 架构下历次探测同签名); `~/.hindsight/profiles/*.log` 自 8-07 起 ~20d 未动; 根 `daemon.lock` (0B, 停留于 8-04, daemon.log 尾部为 8-04 的 `LLM API key is required` ValueError 历史痕迹) 已按端口无监听+0字节+陈旧规则移除。`reflect()` 不可调用; markdown 归档仍为权威存储。补救菜单不变: (A) 起外部 Hindsight 服务器 / (B) 切换 memory.provider / (C) 维持 markdown-only (当前既成状态, 零成本)。无需老板决策。
 
 ## 2026-06-03 — Toolset state snapshot
 
@@ -313,4 +312,11 @@ trusting this trick.
   - Hindsight: `memory.provider: hindsight` still set; port 8888 refused (socket probe), `~/.hindsight/profiles/*.log` untouched since 8-07 (~20d stale) — consistent with absent external server. `reflect()` skipped (environmental, per skill skip rule); markdown archive authoritative. Remediation (A/B/C) unchanged since 8-15; current de-facto state is (C).
   - Housekeeping hygiene: entry inserted as sibling at indent 0 before the single trailing reminder (marker-anchor + leading blank line); header `Latest run` + Hindsight paragraph + trailing reminder rewritten to contain only today's facts.
   - Char counts: MEMORY.md 1832/2200 (83%), USER.md unchanged 1392/1375 (over-limit, timeless content, no action per prior runs).
-- Next scheduled cleanup: per the cron job cadence. Latest run was **2026-08-27** — no-op sweep + ledger-gap repair (memory-cleanup cron was dead/drifting 8-18..8-26, resumed this run) + credential-entry date refresh. Hindsight reflect() still blocked by absent external server (port 8888); boss decision menu (A/B/C) unchanged, de-facto state (C) markdown-only.
+- 2026-08-27 — 21:00 CST 计划触发 (当日第 2 次 fire; 上方 15:08 CST 恢复运行已修复 8-18..8-26 账本断档): no-op sweep + Hindsight 复探 + 陈旧锁清理。
+  - Survey: cutoff 2026-07-28; 5 条活跃条目; 内嵌日期仅 2026-08-16 (3-profile、PM cron) 与 2026-08-27 (凭据状态, 今晨已刷新) — 均在窗口内, 无可归档; 无需修正 (provider=hindsight、v0.20.0、profiles 目录、USAGE.md 本 fire 直接核盘全部成立)。
+  - Pre-flight: 0 个陈旧 memories/*.lock。三态存活: agent.log 0m / errors.log 1m / gateway.log 363m → gateway 存活 (gateway.log 沉默属日志伪象, 按 2026-07-19 三态规则)。
+  - Hindsight (prompt 指定有界探测): socket 127.0.0.1:8888 于 13:01 UTC 拒连; ~/.hindsight/profiles/*.log ~20d 未动 (自 8-07); 根 daemon.lock 0B 陈旧 (8-04) 且 daemon.log 尾部为 8-04 历史 `LLM API key is required` ValueError — 锁已移除 (端口无监听+0字节+23d 陈旧)。reflect() 按技能环境跳过规则跳过; 补救 (A/B/C) 不变; 既成 (C) markdown-only。
+  - Cron 自检: jobs.json 996743153888 last_status=ok; 本 fire 为 8-18..8-26 漂移段后首个干净的 21:00 CST 计划触发 — 下周期应确认 8-28 正常追加条目、日节奏恢复。
+  - 写入规范: 条目以缩进 0 同级插入于唯一尾部 reminder 之前 (标记锚点+前置换行); 头部 Latest run + Hindsight 段落 + 尾部 reminder 全部重写为仅含本 fire 事实; 全部写入走 tmp+os.replace。
+  - Char counts: MEMORY.md 未改 (1832/2200); USER.md 未动 1392/1375 (永恒内容, 不动)。
+- Next scheduled cleanup: 按 cron 节奏 (下次 2026-08-28 21:00 CST)。最近一次 = **2026-08-27 21:00 CST 计划触发** (当日第 2 次 fire) — no-op sweep、Hindsight 端口 8888 再次拒连、陈旧根 daemon.lock 移除。观察项: 确认 8-28 fire 正常追加条目 (8-18..8-26 漂移段之后首个完整干净周期)。reflect() 仍被外部服务器缺席阻塞; (A/B/C) 菜单不变, 既成状态 (C) markdown-only。
