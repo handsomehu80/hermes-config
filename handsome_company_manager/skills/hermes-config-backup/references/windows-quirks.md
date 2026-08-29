@@ -150,3 +150,23 @@ For Python scripts that need to be Windows-path-safe, use `pathlib.Path` (handle
 - Or write under the active workspace (recommended for skill support files)
 
 For skill support files specifically, use `skill_manage(action='write_file', name=..., file_path='scripts/foo.py', file_content=...)` — that tool writes under the skill's directory regardless of cwd.
+
+## 11. `tar -xzf C:/... -C C:/...` fails with `tar (child): Cannot connect to C: resolve failed`
+
+**Symptom** (hit 2026-08-28 PM config-backup): `curl` downloads the codeload tarball to `C:/Users/.../repo-<ts>.tar.gz` fine, then `tar -xzf "$B/repo-$TS.tar.gz" -C "$B/original-$TS" --strip-components=1` dies with:
+
+```
+tar (child): Cannot connect to C: resolve failed
+gzip: stdin: unexpected end of file
+tar: Child returned status 128
+```
+
+**Cause:** GNU tar treats a leading `X:` in an argument as `[user@]host:` remote-tar syntax. `C:/Users/...` → host `C`. curl doesn't care, tar does.
+
+**Fix:** add `--force-local`:
+
+```bash
+tar --force-local -xzf "$B/repo-$TS.tar.gz" -C "$B/original-$TS" --strip-components=1
+```
+
+Verified working immediately after the plain form failed twice in the same run. Alternative: `cd` into the target dir and use a relative tarball path; `--force-local` is the one-flag fix.
