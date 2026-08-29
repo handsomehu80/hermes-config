@@ -31,6 +31,9 @@ EXCLUDE_DIRS = {
     '.curator_backups', '.archive', '.hub', '.idea', '.vscode',
     'lsp', 'node_modules',  # LSP language servers + npm deps (18MB+ runtime, regenerable)
     'output',  # cron/output is per-job runtime output
+    'bin',   # bundled runtime exes (uv.exe/uvx.exe, ~48MB) — regenerable, not config (hit 2026-08-28)
+    'node',  # bundled Node.js runtime (~87MB) — same category as lsp/node_modules (hit 2026-08-28)
+    'state', # gateway runtime state (heartbeat, lifecycle) — transient (hit 2026-08-28)
 }
 
 # Files to skip entirely (exact match)
@@ -43,6 +46,12 @@ EXCLUDE_FILES = {
     '.DS_Store', 'Thumbs.db', 'desktop.ini',
     '.usage.json', '.usage.json.lock', '.bundled_manifest',
     '.curator_state', '.tick.lock',
+    # Runtime caches / transient markers first seen 2026-08-28 (regenerable, not config):
+    'executions.db', 'notepad.db', 'ticker_heartbeat', 'ticker_last_success',
+    'catch_up_occurrences', 'tmp_issues.json', 'usage_audit.jsonl',
+    'gateway-starts.log', 'ollama_cloud_models_cache.json',
+    'provider_models_cache.json', 'web-ui-build-stamp.json',
+    '.update_check', 'feishu_seen_message_ids.json',
 }
 
 # Glob patterns (matched via fnmatch)
