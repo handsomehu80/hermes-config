@@ -9,9 +9,9 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-08-28 (21:00 CST 计划触发)** — no-op sweep (cutoff 2026-07-29; MEMORY.md §-分隔 5 块, 内嵌日期均在窗口内, 无可归档条目)。本 fire 直接核盘: jobs.json 5 job 全 last_status=ok 且排程与记忆一致、kanban.dispatch_in_gateway=true 成立 → PM cron 条目与 kanban 条目的 verified 日期刷新至今日 (窄刷新, 事实未变)。USER.md 未动。
+> Latest run: **2026-08-29** — no-op sweep (cutoff 2026-07-30; MEMORY.md §-分隔 5 块, 内嵌日期 2026-08-16/27/28 均在窗口内, 无可归档条目)。本 fire 直接核盘: jobs.json 5 job 全 last_status=ok 且排程一致、kanban.dispatch_in_gateway=true 成立、凭据活跃行复核 (MINIMAX_CN_API_KEY/GITHUB_TOKEN set, HF_TOKEN commented) → 凭据条目与 PM cron/3-profile 条目的 verified 日期窄刷新至 2026-08-29 (事实未变, 字符数不变)。USER.md 未动。
 >
-> Hindsight status this cycle: 2026-08-28 13:01 UTC 探测 — 端口 8888 拒连 (外部服务器缺席, 0.20.x 架构下的稳定签名, 非演变); `~/.hindsight/profiles/*.log` 自 8-07 起 ~21d 未动, 无新失败签名; 根 daemon.lock 未复现 (8-27 已移除)。v0.20.x venv 仅存 hindsight_client HTTP 客户端, 无嵌入式 daemon 包 → `reflect()` 不可调用; markdown 归档仍为权威存储。补救菜单不变: (A) 起外部 Hindsight 服务器 / (B) 切换 memory.provider / (C) 维持 markdown-only (既成状态, 零成本)。无需老板决策。
+> Hindsight status this cycle: 2026-08-29 13:02 UTC 探测 — 端口 8888 拒连 (socket + hindsight_client 双探, ClientConnectorError; 0.20.x 架构下的稳定签名, 外部服务器缺席, 非演变); `~/.hindsight/profiles/*.log` 自 8-07 起 ~22d 未动, 无新失败签名; 根 daemon.lock 未复现 (8-27 已移除)。v0.20.x venv 仅存 hindsight_client HTTP 客户端, 无嵌入式 daemon 包 → `reflect()` 不可调用; markdown 归档仍为权威存储。补救菜单不变: (A) 起外部 Hindsight 服务器 / (B) 切换 memory.provider / (C) 维持 markdown-only (既成状态, 零成本)。无需老板决策。
 
 ## 2026-06-03 — Toolset state snapshot
 
@@ -327,4 +327,12 @@ trusting this trick.
   - 观察项闭环: 昨日 "确认 8-28 正常追加条目、日节奏恢复" — 本 fire 即 8-28 21:00 CST 计划触发且 jobs.json 996743153888 last_status=ok, 闭环成立。
   - 写入规范: 全部写入 tmp+os.replace; 条目缩进 0 同级插于唯一尾部 reminder 之前 (行锚点+前置换行); 头部 Latest run + Hindsight 段落 + 尾部 reminder 重写为仅含本 fire 事实。
   - Char counts: MEMORY.md 字符数不变 (仅 2 处日期等宽刷新); USER.md 未动 1392/1375 (超限为永恒内容, 沿前裁定不动)。
-- Next scheduled cleanup: 按 cron 节奏 (下次 2026-08-29 21:00 CST)。最近一次 = **2026-08-28 21:00 CST 计划触发** — no-op sweep、PM cron/kanban 两处 verified 日期刷新至 2026-08-28、Hindsight 端口 8888 拒连 (稳定签名)。观察项已闭环: 8-18..8-26 漂移段后日节奏已恢复 (8-27 两 fire + 8-28 本 fire 连续正常)。reflect() 仍被外部服务器缺席阻塞; (A/B/C) 菜单不变, 既成 (C) markdown-only。
+- 2026-08-29 — no-op sweep (cutoff 2026-07-30) + 3 处日期窄刷新 + Hindsight 复探。
+  - Survey: 5 条活跃条目; 内嵌日期 2026-08-16 (3-profile 历史注记, 铁律条目无日期)、2026-08-27 (凭据)、2026-08-28 (PM cron/3-profile verified 日期) 均在 30 天窗口内, 无可归档。
+  - 事实复核+日期刷新: jobs.json 5 job 全 last_status=ok 且排程一致 → PM cron 条目 verified 2026-08-28→2026-08-29; config.yaml kanban.dispatch_in_gateway=true + profiles 目录恰 3 个 + USAGE.md 15923B → 3-profile 条目同刷新; .env 活跃行 (MINIMAX_CN_API_KEY=L483, GITHUB_TOKEN=L494 set, HF_TOKEN=L107 commented) → 凭据条目 2026-08-27→2026-08-29。窄刷新, 事实未变, 字符数恒定 (2022)。
+  - Pre-flight: 0 个陈旧 memories/*.lock。三态存活: agent.log 0m / errors.log 58m / gateway.log 3244m → gateway 存活 (gateway.log 沉默为日志伪象, 按 2026-07-19 三态规则)。
+  - Hindsight (prompt 指定有界探测): socket 127.0.0.1:8888 拒连 + hindsight_client 双探 ClientConnectorError (13:02 UTC); ~/.hindsight/profiles/*.log 自 8-07 未动 (~22d); 根 daemon.lock 未复现。reflect() 按环境跳过 (0.20.x 无嵌入式 daemon, 外部服务器缺席为稳定签名, 无演变); 补救 (A/B/C) 不变, 既成 (C) markdown-only。
+  - Cron 自检: jobs.json 996743153888 last_status=ok; 本 fire 为 8-18..8-26 漂移段后连续第 3 个正常日 fire (8-27 双 fire + 8-28 + 本 fire), 日节奏持续成立。
+  - 写入规范: 全部写入 tmp+os.replace; 条目缩进 0 同级插于唯一尾部 reminder 之前 (rfind 行锚点+前置换行); 头部 Latest run + Hindsight 段落 + 尾部 reminder 重写为仅含本 fire 事实。
+  - Char counts: MEMORY.md 2022/2200 (92%, 等宽刷新后字符数不变); USER.md 未动 1392/1375 (超限为永恒内容, 沿前裁定不动)。
+- Next scheduled cleanup: 按 cron 节奏 (下次 2026-08-30 21:00 CST)。最近一次 = **2026-08-29** — no-op sweep、凭据条目与 PM cron/3-profile 条目 verified 日期刷新至 2026-08-29、Hindsight 端口 8888 拒连 (稳定签名)。reflect() 仍被外部服务器缺席阻塞; (A/B/C) 菜单不变, 既成 (C) markdown-only。
