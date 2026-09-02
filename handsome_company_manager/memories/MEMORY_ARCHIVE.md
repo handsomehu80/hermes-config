@@ -9,9 +9,9 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-08-29** — no-op sweep (cutoff 2026-07-30; MEMORY.md §-分隔 5 块, 内嵌日期 2026-08-16/27/28 均在窗口内, 无可归档条目)。本 fire 直接核盘: jobs.json 5 job 全 last_status=ok 且排程一致、kanban.dispatch_in_gateway=true 成立、凭据活跃行复核 (MINIMAX_CN_API_KEY/GITHUB_TOKEN set, HF_TOKEN commented) → 凭据条目与 PM cron/3-profile 条目的 verified 日期窄刷新至 2026-08-29 (事实未变, 字符数不变)。USER.md 未动。
+> Latest run: **2026-09-02** — no-op sweep (cutoff 2026-08-03; MEMORY.md §-分隔 5 块, 内嵌日期 2026-08-16/27/28/29 均在窗口内, 无可归档条目) + 1 处证据支撑修正 (PM cron 条目 deliver 字段: 仅 bihourly/daily-evening=feishu home, 余 3 个=local) + 记录 8-30..9-02 调度器停摆 ~72h (ghost-OK; 本 fire 为 gateway 09-02 15:02 CST 重启后补发, 非排程时刻)。
 >
-> Hindsight status this cycle: 2026-08-29 13:02 UTC 探测 — 端口 8888 拒连 (socket + hindsight_client 双探, ClientConnectorError; 0.20.x 架构下的稳定签名, 外部服务器缺席, 非演变); `~/.hindsight/profiles/*.log` 自 8-07 起 ~22d 未动, 无新失败签名; 根 daemon.lock 未复现 (8-27 已移除)。v0.20.x venv 仅存 hindsight_client HTTP 客户端, 无嵌入式 daemon 包 → `reflect()` 不可调用; markdown 归档仍为权威存储。补救菜单不变: (A) 起外部 Hindsight 服务器 / (B) 切换 memory.provider / (C) 维持 markdown-only (既成状态, 零成本)。无需老板决策。
+> Hindsight status this cycle: 2026-09-02 07:10 UTC 探测 — 端口 8888 拒连 (socket + hindsight_client 双探, ClientConnectorError; 0.20.x 架构下的稳定签名, 外部服务器缺席, 非演变); `~/.hindsight/profiles/*.log` 自 8-07 起 ~26d 未动, 无新失败签名; 根 daemon.lock 未复现。v0.20.x venv 仅存 hindsight_client HTTP 客户端, 无嵌入式 daemon 包 → `reflect()` 不可调用; markdown 归档仍为权威存储。补救菜单不变: (A) 起外部 Hindsight 服务器 / (B) 切换 memory.provider / (C) 维持 markdown-only (既成状态, 零成本)。无需老板决策。
 
 ## 2026-06-03 — Toolset state snapshot
 
@@ -335,4 +335,13 @@ trusting this trick.
   - Cron 自检: jobs.json 996743153888 last_status=ok; 本 fire 为 8-18..8-26 漂移段后连续第 3 个正常日 fire (8-27 双 fire + 8-28 + 本 fire), 日节奏持续成立。
   - 写入规范: 全部写入 tmp+os.replace; 条目缩进 0 同级插于唯一尾部 reminder 之前 (rfind 行锚点+前置换行); 头部 Latest run + Hindsight 段落 + 尾部 reminder 重写为仅含本 fire 事实。
   - Char counts: MEMORY.md 2022/2200 (92%, 等宽刷新后字符数不变); USER.md 未动 1392/1375 (超限为永恒内容, 沿前裁定不动)。
-- Next scheduled cleanup: 按 cron 节奏 (下次 2026-08-30 21:00 CST)。最近一次 = **2026-08-29** — no-op sweep、凭据条目与 PM cron/3-profile 条目 verified 日期刷新至 2026-08-29、Hindsight 端口 8888 拒连 (稳定签名)。reflect() 仍被外部服务器缺席阻塞; (A/B/C) 菜单不变, 既成 (C) markdown-only。
+
+- 2026-09-02 — no-op sweep (cutoff 2026-08-03) + 1 处证据支撑修正 (deliver 字段) + 调度器停摆断档记录 (8-30..9-02)。
+  - Survey: MEMORY.md §-分隔 5 块 (第 5 块含 PM 铁律+PM cron 两条); 内嵌日期 2026-08-16 (历史注记)/2026-08-27/28/29 均在 30 天窗口内 → 无可归档条目。
+  - 事实复核+修正: 凭据活跃行复核成立 (MINIMAX_CN_API_KEY set、GITHUB_TOKEN set、HF_TOKEN commented — 表述不变, 日期窄刷新 2026-08-29→09-02); kanban.dispatch_in_gateway=true、profiles 目录恰 3 个、USAGE.md 15923B、v0.20.0/glm-5.2 全部成立。**修正**: jobs.json deliver 实证 = 仅 bihourly/daily-evening=feishu, task-polling/config-backup/memory-cleanup=local → PM cron 条目原 "deliver=feishu home" (误标全 5 个) 窄修正为分列表述。
+  - **调度器停摆 ~72h (2026-08-30 14:46 CST..09-02 15:02 CST, ghost-OK)**: agent.log 8-31/9-01 零行、8-30 止于 14:46; 5 个 cron 输出目录全部断流 (末次: bihourly 8-30 14:02、task-polling 8-30 14:46、daily-evening 8-29 15:04、config-backup 8-29 20:05、memory-cleanup 8-29 21:04), 而 jobs.json 全程 last_status=ok —— 与 8-18..8-26 断档同族 (scheduler-cadence-gap)。gateway 09-02 15:02:29 CST 重启 (gateway.log "Gateway running with 1 platform(s)"), 6 分钟内 3 个过期 job 补发 (task-polling 15:03、config-backup 15:08、memory-cleanup 15:08=本 fire); 8-30 20:00/21:00、8-31 全天、9-01 全天的 fire 永久缺账 (cron 不补历史)。bihourly/daily-evening 的 feishu 投递同步断流 3 天 (~10 期双小时报告+3 期日报未达老板侧)。若今晚 21:00 CST 正常再 fire, 当日将现双条目 (与 8-27 同形, 属预期)。
+  - Pre-flight: 0 个陈旧 memories/*.lock。三态存活: agent.log 0m (本 fire) / errors.log 6.8m / gateway.log 6.9m — 全鲜 (今晨重启), gateway 存活。
+  - Hindsight (prompt 指定有界探测): socket + hindsight_client 双探 127.0.0.1:8888 于 07:10 UTC 拒连 (ClientConnectorError); ~/.hindsight/profiles/*.log 自 8-07 未动 (~26d); 根 daemon.lock 未复现。reflect() 按环境跳过 (0.20.x 无嵌入式 daemon, 外部服务器缺席为稳定签名, 无演变); 补救 (A/B/C) 不变, 既成 (C) markdown-only。
+  - USER.md 未动 (mtime ~50d 前, 永恒内容)。
+  - 写入规范: 全部写入 tmp+os.replace; 条目缩进 0 同级插于唯一尾部 reminder 之前 (rfind 行锚点+前置换行); 头部 Latest run + Hindsight 段落 + 尾部 reminder 重写为仅含本 fire 事实。
+- Next scheduled cleanup: 按 cron 节奏 (下次 2026-09-03 21:00 CST, 前提 gateway 保持存活)。最近一次 = **2026-09-02** — no-op sweep、PM cron 条目 deliver 修正、8-30..9-02 调度停摆 ~72h 记入账本 (gateway 9-02 15:02 CST 重启, 本 fire 为补发)。Hindsight 端口 8888 拒连 (稳定签名); reflect() 仍被外部服务器缺席阻塞; (A/B/C) 菜单不变, 既成 (C) markdown-only。
