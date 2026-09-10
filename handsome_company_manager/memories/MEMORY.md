@@ -1,4 +1,4 @@
-Host: Windows 10. User home: C:\Users\Administrator. Shell is git-bash/MSYS (POSIX), NOT PowerShell — use bash syntax (ls, $HOME, &&, |, single quotes, MSYS-style /c/Users/... paths). Python: 3.11.9. Package manager: uv available, pip → python3.11. python3 command is MISSING — always invoke `python` not `python3`.
+Host: Windows 10. User home: C:\Users\Administrator. Shell is git-bash/MSYS (POSIX), NOT PowerShell — use bash syntax (ls, $HOME, &&, |, single quotes, MSYS-style /c/Users/... paths). Python: 3.11.15 (2026-09-09 实测). Package manager: uv available, pip → python3.11. python3 command is MISSING — always invoke `python` not `python3`.
 
 §
 
@@ -16,4 +16,4 @@ Credential state (2026-09-03): profile `.env` contains `MINIMAX_CN_API_KEY` and 
 
 PM 铁律+陷阱:(1) PM=派单+管进展,不越俎。(2) Issue closed≠完成,必查 commit+PR merged+抽读+evaluator 无 Write/Edit。(3) 用户口头"好了"/"做完了"必须工具实测再报告。(4) 凭据双链路:boss OAuth 可直 git push 绕 reviewer;员工 PAT 仅 gh API。(5) 永不 in-place sed .env。(6) MSYS:`\\${var}` 不展开、`icacls /T` 禁、`hermes_tools` 拒读 .env。详见 oneplusn references/windows-msys-tooling.md。
 
-PM cron(verified 2026-09-03, jobs.json):bihourly d26c66fbbdd0 `0 */2 * * *`、daily-evening 0cbfcf7b360e `0 15 * * *`、task-polling cef7e567ee17 `15,45 * * * *`、config-backup 74ebd0a04527 `0 20 * * *`、memory-cleanup 996743153888 `0 21 * * *`,last_status 常态 ok、可因 zai 429 瞬时限流翻 error(9-03 20:00 两例,当刻后自愈);仅 bihourly/daily-evening deliver=feishu home,余 3 个 deliver=local(2026-09-02 实测修正)。8-30 14:46 CST~9-02 15:02 CST 调度器停摆 ~72h(ghost-OK:jobs.json 仍全 ok、输出目录断流),gateway 重启后补发过期 job。每 2h 双小时报告只观察不干预。
+PM cron(verified 2026-09-09, jobs.json):bihourly d26c66fbbdd0 `0 */2 * * *`、daily-evening 0cbfcf7b360e `0 15 * * *`、task-polling cef7e567ee17 `15,45 * * * *`、config-backup 74ebd0a04527 `0 20 * * *`、memory-cleanup 996743153888 `0 21 * * *`,last_status 常态 ok;zai 429 两型——瞬时型自愈(9-03)、周/月配额型可击落整 fire(9-08 21:00 memory-cleanup error,配额 9-09 12:03 重置后恢复);仅 bihourly/daily-evening deliver=feishu home,余 3 个 deliver=local。8-30~9-02 调度器停摆 ~72h(ghost-OK,gateway 重启补发)。每 2h 双小时报告只观察不干预。
