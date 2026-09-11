@@ -9,9 +9,9 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-> Latest run: **2026-09-09** — 21:00 CST 计划触发: no-op sweep (cutoff 2026-08-10, 无可归档条目) + 1 处证据支撑修正 (MEMORY.md Python 3.11.9→3.11.15, python 与 hermes --version 双源实测) + 新环境信号 (zai 周/月配额型 429 击落 9-08 21:00 本 job fire, 限额 2026-09-09 12:03 重置, 本次为恢复后首跑) + Hindsight 8888 稳定拒连。
+Latest run: **2026-09-10** — 21:00 CST 计划触发: no-op sweep (cutoff 2026-08-11, 无可归档条目; 最旧活动条目内部日期 8-16 仍在窗口内) + 零修正 (jobs.json 5 职全 ok 与活动条目一致, 凭据三态复核一致) + Hindsight 8888 复探仍缺席。
 >
-> Hindsight status this cycle: 2026-09-09 13:05 UTC 探测 — socket 3× ConnectionRefused (errno 10061) + hindsight_client 纯同步调用 ClientConnectorError "远程计算机拒绝网络连接" (与历次同属"外部服务器缺席"稳定签名, 非演变); `~/.hindsight/profiles/*.log` 冻结于 8-07 (~33d, 零新失败签名 → 无重排触发); v0.20.x venv 仅 hindsight_client HTTP 客户端, 无嵌入式 daemon → `reflect()` 不可调用; markdown 归档为权威存储。补救菜单: (A) 起外部 Hindsight 服务器 / (B) 切换 memory.provider / (C) 维持 markdown-only (既成状态, 零成本)。无需老板决策。
+> Hindsight status this cycle: 2026-09-10 13:01 UTC 探测 — socket 双端口 (8888/9807) 均 TimeoutError (昨日 socket 层为 ConnectionRefused errno 10061, 本次微小差异但同族) + hindsight_client 实调 ClientConnectorError "远程计算机拒绝网络连接" (client 层签名与历次一致 → "外部服务器缺席"稳定签名, 非门控演变); `~/.hindsight/profiles/*.log` 冻结于 8-07 (~34d, 零新失败签名 → 无重排触发); v0.20.x venv 仅 hindsight_client HTTP 客户端, 无嵌入式 daemon → reflect() 无调用对象; markdown 归档为权威存储。补救菜单不变: (A) 起外部 Hindsight 服务器 / (B) 切换 memory.provider / (C) 维持 markdown-only (既成状态, 零成本)。无需老板决策。
 
 ## 2026-06-03 — Toolset state snapshot
 
@@ -363,4 +363,12 @@ trusting this trick.
   - Char counts: MEMORY.md 2032/2200 (92%, 修正后净增); USER.md 未动 1392/1375 (超限为永恒内容, 沿前裁定不动)。
 
 - 2026-09-09 — 21:00 CST 计划触发: no-op sweep (cutoff 2026-08-10, 无可归档条目; 最旧活动条目内部日期 8-16) + 1 处证据支撑修正 (Python 3.11.9→3.11.15, python/hermes --version 双源) + PM cron 条目刷新 (429 双型: 瞬时型自愈 9-03 vs 周/月配额型击落整 fire 9-08 21:00 memory-cleanup, 配额 9-09 12:03 重置后本 fire 恢复) + Hindsight 8888 稳定拒连 (ConnectionRefused 10061 ×3 + hindsight_client ClientConnectorError, 与 9-03 同签名非演变; ~/.hindsight 日志冻结 8-07 ~33d)。
-- Next scheduled cleanup: 按 cron 节奏 (下次 2026-09-10 21:00 CST)。最近一次 = **2026-09-09** — no-op sweep、1 处证据修正 (Python 3.11.15)、PM cron 条目 429 双型刷新 (周配额型曾击落 9-08 fire, 已随配额重置恢复)。Hindsight 8888 拒连稳定, reflect() 被外部服务器缺席阻塞; (A/B/C) 不变, 既成 (C) markdown-only。
+
+- 2026-09-10 — 21:00 CST 计划触发: no-op sweep (cutoff 2026-08-11) + 零证据修正 + Hindsight 复探 (缺席签名稳定)。
+  - Survey: MEMORY.md §-分隔 6 块; 内嵌日期最新为 2026-09-09 (PM cron 条目), 历史注记 8-16/9-02 均在窗口内 → 无可归档条目。USER.md 按规则未动。
+  - 事实复核 (零修正): jobs.json 5 职全部 last_status=ok (bihourly/daily-evening/task-polling/config-backup/memory-cleanup, 排程与活动条目逐一相符); .env 凭据三态 (MINIMAX_CN_API_KEY set、GITHUB_TOKEN set、HF_TOKEN commented out) 与 2026-09-03 凭据条目一致。
+  - Pre-flight: 0 个 memories/*.lock。三态存活: agent.log 0m (本 fire) / errors.log 180m / gateway.log 1723m 停更 → gateway 存活 (gateway.log 沉默为日志伪象, 沿 2026-07-19 三态规则)。
+  - Hindsight (prompt 指定调用 → 有界尝试 1 次, 0.9-2.9s 快败): socket 8888/9807 TimeoutError + hindsight_client ClientConnectorError "远程计算机拒绝网络连接"; ~/.hindsight/profiles/*.log 冻结 8-07 (~34d); v0.20.x 无嵌入式 daemon → reflect() 跳过, markdown 权威。补救菜单 (A/B/C) 不变, 无需老板决策。
+  - 写入规范: 全部 tmp+os.replace; 条目 0 缩进同级插于唯一尾部 reminder 之前 (rfind 行锚点+前置换行); 头部 Latest run + Hindsight 段 + 尾部 reminder 重写为仅含本 fire 事实。
+
+- Next scheduled cleanup: 按 cron 节奏 (下次 2026-09-11 21:00 CST)。最近一次 = **2026-09-10** — no-op sweep、零修正、Hindsight 复探缺席签名稳定 (详见上方当日条目)。
