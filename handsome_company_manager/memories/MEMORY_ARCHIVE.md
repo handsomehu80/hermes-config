@@ -9,9 +9,9 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-Latest run: **2026-09-10** — 21:00 CST 计划触发: no-op sweep (cutoff 2026-08-11, 无可归档条目; 最旧活动条目内部日期 8-16 仍在窗口内) + 零修正 (jobs.json 5 职全 ok 与活动条目一致, 凭据三态复核一致) + Hindsight 8888 复探仍缺席。
+Latest run: **2026-09-11** — 21:00 CST 计划触发: no-op sweep (cutoff 2026-08-12, 无可归档条目; 最旧活动条目内部日期 8-16 仍在窗口内) + 2 处确认性日期刷新 (凭据 09-03→09-11, PM cron 09-09→09-11, 均与实测一致) + Hindsight 复探仍缺席。
 >
-> Hindsight status this cycle: 2026-09-10 13:01 UTC 探测 — socket 双端口 (8888/9807) 均 TimeoutError (昨日 socket 层为 ConnectionRefused errno 10061, 本次微小差异但同族) + hindsight_client 实调 ClientConnectorError "远程计算机拒绝网络连接" (client 层签名与历次一致 → "外部服务器缺席"稳定签名, 非门控演变); `~/.hindsight/profiles/*.log` 冻结于 8-07 (~34d, 零新失败签名 → 无重排触发); v0.20.x venv 仅 hindsight_client HTTP 客户端, 无嵌入式 daemon → reflect() 无调用对象; markdown 归档为权威存储。补救菜单不变: (A) 起外部 Hindsight 服务器 / (B) 切换 memory.provider / (C) 维持 markdown-only (既成状态, 零成本)。无需老板决策。
+> Hindsight status this cycle: 2026-09-11 13:05 UTC 探测 — socket 8888/9807 TimeoutError; HTTP 层 urllib 实探 (localhost 与 127.0.0.1, root/health/version 端点) 全部 WinError 10061 积极拒绝 → "外部服务器缺席" 稳定签名 (与历次同族, 非门控演变); hindsight_client 库调用因本 agent 进程 event-loop 冲突不可执行 (进程伪象, 非服务器信号); `~/.hindsight/profiles/*.log` 冻结于 8-07 (~35d, 零新失败签名 → 无重排触发); v0.20.x venv 仅 hindsight_client HTTP 客户端, 无嵌入式 daemon → reflect() 无调用对象; markdown 归档为权威存储。补救菜单不变: (A) 起外部 Hindsight 服务器 / (B) 切换 memory.provider / (C) 维持 markdown-only (既成状态, 零成本)。无需老板决策。
 
 ## 2026-06-03 — Toolset state snapshot
 
@@ -371,4 +371,10 @@ trusting this trick.
   - Hindsight (prompt 指定调用 → 有界尝试 1 次, 0.9-2.9s 快败): socket 8888/9807 TimeoutError + hindsight_client ClientConnectorError "远程计算机拒绝网络连接"; ~/.hindsight/profiles/*.log 冻结 8-07 (~34d); v0.20.x 无嵌入式 daemon → reflect() 跳过, markdown 权威。补救菜单 (A/B/C) 不变, 无需老板决策。
   - 写入规范: 全部 tmp+os.replace; 条目 0 缩进同级插于唯一尾部 reminder 之前 (rfind 行锚点+前置换行); 头部 Latest run + Hindsight 段 + 尾部 reminder 重写为仅含本 fire 事实。
 
-- Next scheduled cleanup: 按 cron 节奏 (下次 2026-09-11 21:00 CST)。最近一次 = **2026-09-10** — no-op sweep、零修正、Hindsight 复探缺席签名稳定 (详见上方当日条目)。
+- 2026-09-11 — 21:00 CST 计划触发: no-op sweep (cutoff 2026-08-12) + 2 处确认性日期刷新 (凭据/cron 条目) + Hindsight 复探 (缺席签名稳定, HTTP 层 WinError 10061)。
+  - Survey: MEMORY.md §-分隔 6 块; 内嵌日期最新 2026-09-11 (本次刷新), 历史注记 8-16/9-02 在窗口内 → 无可归档条目。USER.md 按规则未动 (mtime ~59d, 永恒内容)。
+  - 事实复核 (零修正, 确认性刷新): jobs.json 5 职全部 last_status=ok (bihourly/daily-evening/task-polling/config-backup/memory-cleanup, 排程与活动条目逐一相符); .env 三态 (MINIMAX_CN_API_KEY set、GITHUB_TOKEN set、HF_TOKEN commented out) 与活动条目一致 → 凭据条目日期 09-03→09-11、PM cron 条目 09-09→09-11。
+  - Pre-flight: 0 个陈旧 memories/*.lock。三态存活: agent.log 0m (本 fire) / errors.log 14m / gateway.log 3162m 停更 → gateway 存活 (gateway.log 沉默为日志伪象, 沿 2026-07-19 tri-state 规则)。
+  - Hindsight (prompt 指定调用 → 有界尝试): socket 双端口 TimeoutError + HTTP 层 urllib 实探全 WinError 10061 积极拒绝 (外部服务器缺席, 与 9-09/9-10 同族签名非演变); hindsight_client 库调用因本 agent 进程 event-loop 冲突不可用 (进程伪象, 非服务器信号); ~/.hindsight 日志冻结 8-07 (~35d, 零新签名 → 无重排触发); v0.20.x 无嵌入式 daemon → reflect() 跳过, markdown 权威。补救 (A) 外部服务器 / (B) 切 provider / (C) markdown-only 不变, 既成 (C), 无需老板决策。
+  - 写入规范: 全部 tmp+os.replace; 条目 0 缩进同级插于唯一尾部 reminder 之前; 头部 Latest run + Hindsight 段 + 尾部 reminder 重写为仅含本 fire 事实。
+- Next scheduled cleanup: 按 cron 节奏 (下次 2026-09-12 21:00 CST)。最近一次 = **2026-09-11** — no-op sweep、2 处确认性日期刷新、Hindsight 缺席签名稳定 (详见上方当日条目)。
