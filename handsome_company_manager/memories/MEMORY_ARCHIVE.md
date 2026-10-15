@@ -9,9 +9,10 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-Latest run: **2026-09-12** — 21:00 CST 计划触发: no-op sweep (cutoff 2026-08-13, 无可归档条目; 最旧活动条目内部日期 8-16 仍在窗口内) + 2 处确认性日期刷新 (凭据 09-11→09-12, PM cron 09-11→09-12, 均与实测一致) + Hindsight 复探仍缺席。
+Latest run: **2026-10-15** — 补发触发 (网关 02:49 CST 重启后 catch-up; 上次成功 run 2026-09-12): no-op sweep (cutoff 2026-09-15, 无可归档条目) + 3 处事实复核刷新 (凭据 09-12→10-15、3-profile 09-02→10-15 确认性; PM cron 09-12→10-15 并实质更新: 记录 9-14~10-15 ~31d cron 停摆) + Hindsight 有界尝试仍缺席。
 >
-> Hindsight status this cycle: 2026-09-12 13:02 UTC 探测 — socket 8888/9807 + HTTP 层 urllib 实探全 WinError 10061 积极拒绝 → "外部服务器缺席" 稳定签名 (与 9-09/9-10/9-11 同族, 非门控演变); `~/.hindsight/profiles/*.log` 冻结于 8-07 (~36d, 零新失败签名 → 无重排触发); v0.20.x venv 复核 hindsight 包 ABSENT、仅 hindsight_client HTTP 客户端, 无嵌入式 daemon → reflect() 无调用对象; markdown 归档为权威存储。补救菜单不变: (A) 起外部 Hindsight 服务器 / (B) 切换 memory.provider / (C) 维持 markdown-only (既成状态, 零成本)。无需老板决策。
+> Hindsight status this cycle: 2026-10-14 18:55 UTC 探测 — venv 复核 hindsight 包 ABSENT、仅 hindsight_client (v0.20.x 架构确认); hindsight_client 实连 http://localhost:8888 → ClientConnectorError 积极拒绝 (外部服务器缺席, 与 9-09..9-12 同族签名, 非门控演变); `~/.hindsight/profiles/*.log` 冻结于 2026-08-07 (~68d, 零新失败签名) → reflect() 无调用对象, markdown 归档为权威存储。补救菜单: (A) 起外部 Hindsight 服务器 / (B) 切换 memory.provider / (C) 维持 markdown-only — 无门控演变证据, 维持既成 (C), 零成本, 无需老板决策。
+
 ## 2026-06-03 — Toolset state snapshot
 
 Web (Tavily) ✓ enabled, browser (agent-browser + Playwright Chromium)
@@ -383,4 +384,11 @@ trusting this trick.
   - Pre-flight: 0 个陈旧 memories/*.lock。三态存活: agent.log 0m (本 fire) / errors.log 15m / gateway.log 821m 停更 → gateway 存活 (gateway.log 沉默为日志伪象, 沿 2026-07-19 tri-state 规则)。
   - Hindsight (prompt 指定调用 → 有界尝试): socket 双端口 + HTTP 层 urllib 实探全 WinError 10061 积极拒绝 (外部服务器缺席, 与 9-09/9-10/9-11 同族签名非演变); venv 复核 hindsight 包 ABSENT、hindsight_client present (v0.20.x 架构确认); ~/.hindsight 日志冻结 8-07 (~36d, 零新签名 → 无重排触发) → reflect() 跳过, markdown 权威。补救 (A) 外部服务器 / (B) 切 provider / (C) markdown-only 不变, 既成 (C), 无需老板决策。
   - 写入规范: 全部 tmp+os.replace; 条目 0 缩进同级插于唯一尾部 reminder 之前 (rfind 行锚点+前置换行); 头部 Latest run + Hindsight 段 + 尾部 reminder 重写为仅含本 fire 事实。
-- Next scheduled cleanup: 按 cron 节奏 (下次 2026-09-13 21:00 CST)。最近一次 = **2026-09-12** — no-op sweep、2 处确认性日期刷新、Hindsight 缺席签名稳定 (详见上方当日条目)。
+- 2026-10-15 — 补发触发 (网关 02:49 CST 重启 catch-up; 距上次成功 run 2026-09-12 间隔 ~33d): no-op sweep (cutoff 2026-09-15) + 3 处复核刷新 (凭据/3-profile/PM cron, 其中 PM cron 条目实质更新) + Hindsight 有界尝试仍缺席。
+  - Survey: MEMORY.md §-分隔 6 块; 内嵌日期最新 2026-09-12 (本次刷新至 10-15), 历史注记 8-16/9-02 属条目内注脚 → 无可归档条目。USER.md 按规则未动 (永恒内容)。
+  - 停摆取证 (本次新事实): gateway.log 生命周期链 pid17140 (9-11 23:20 UTC 启动) → last_heartbeat 9-14 07:42 UTC 后 UNCLEANLY 死亡; 10-08 09:18 CST pid15736 重启但零 cron 输出 (heartbeat 冻结于 9-14, 疑主机休眠/账本伪象); 10-15 02:49 CST 再次重启 → cron 恢复补发: task-polling 02:52 ok、config-backup 02:54 ok、memory-cleanup (本 fire)。前置事件: 9-13/9-14 zai 429 周月配额型击落 bihourly/daily/memory-cleanup (重置点 9-16 12:03 未等到网关已死)。bihourly 待 04:00、daily 待 15:00 槽位自愈。
+  - 事实复核: .env 三态 (MINIMAX set/GITHUB_TOKEN set/HF_TOKEN commented out) 与 gh CLI (boss keyring handsomehu80) 一致 → 凭据条目 09-12→10-15; 3 profile 目录 + USAGE.md + kanban.dispatch_in_gateway=true 逐一相符 → 09-02→10-15; jobs.json 5 职 3 error (上述 429 遗留) → PM cron 条目实质更新 (原"last_status 常态 ok"已失真)。
+  - Pre-flight: 0 个 memories/*.lock。日志三态: agent.log 0m / gateway.log 4m / errors.log 4m 全新鲜 (网关刚重启, 非 gateway.log 沉默伪象)。
+  - Hindsight (prompt 指定调用 → 有界尝试, 45s 子进程): venv hindsight 包 ABSENT、hindsight_client present; client 实连 :8888 积极拒绝 (同族签名, 非演变); ~/.hindsight 日志冻结 8-07 (~68d 零新签名) → reflect() 跳过, markdown 权威。补救 (A) 外部服务器 / (B) 切 provider / (C) markdown-only 不变, 既成 (C), 无需老板决策。
+  - 写入规范: 全部 tmp+os.replace; 条目同级插于唯一尾部 reminder 之前 (行级替换, 显式换行边界); 头部 Latest run + Hindsight 段 + 尾部 reminder 全部重写为仅含本 fire 事实。
+- Next scheduled cleanup: 按 cron 节奏 (下次 2026-10-15 21:00 CST 常规槽位)。最近一次 = **2026-10-15** — 补发触发、no-op sweep、3 处复核刷新 (PM cron 条目实质更新记录 ~31d 停摆)、Hindsight 缺席签名稳定 (详见上方当日条目)。
