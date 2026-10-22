@@ -1,4 +1,4 @@
-Host: Windows 10. User home: C:\Users\Administrator. Shell is git-bash/MSYS (POSIX), NOT PowerShell — use bash syntax (ls, $HOME, &&, |, single quotes, MSYS-style /c/Users/... paths). Python: 3.11.15 (2026-10-17 实测). Package manager: uv available, pip → python3.11. python3 command is MISSING — always invoke `python` not `python3`.
+Host: Windows 10. User home: C:\Users\Administrator. Shell is git-bash/MSYS (POSIX), NOT PowerShell — use bash syntax (ls, $HOME, &&, |, single quotes, MSYS-style /c/Users/... paths). Python: 3.11.15 (2026-10-21 实测). Package manager: uv available, pip → python3.11. python3 command is MISSING — always invoke `python` not `python3`.
 
 §
 
@@ -6,7 +6,7 @@ Hermes Agent v0.20.0, install at C:\Users\Administrator\AppData\Local\hermes\her
 
 §
 
-Credential state (2026-10-17): profile `.env` contains `MINIMAX_CN_API_KEY` and `GITHUB_TOKEN`; GitHub CLI is usable. `HF_TOKEN` is present but commented out (inactive). Other provider credentials were not re-validated in this cleanup—do not infer their availability from older snapshots.
+Credential state (2026-10-21): profile `.env` contains `MINIMAX_CN_API_KEY` and `GITHUB_TOKEN`; GitHub CLI is usable. `HF_TOKEN` is present but commented out (inactive). Other provider credentials were not re-validated in this cleanup—do not infer their availability from older snapshots.
 
 §
 
@@ -16,4 +16,4 @@ Credential state (2026-10-17): profile `.env` contains `MINIMAX_CN_API_KEY` and 
 
 PM 铁律+陷阱:(1) PM=派单+管进展,不越俎。(2) Issue closed≠完成,必查 commit+PR merged+抽读+evaluator 无 Write/Edit。(3) 用户口头"好了"/"做完了"必须工具实测再报告。(4) 凭据双链路:boss OAuth 可直 git push 绕 reviewer;员工 PAT 仅 gh API。(5) 永不 in-place sed .env。(6) MSYS:`\\${var}` 不展开、`icacls /T` 禁、`hermes_tools` 拒读 .env。详见 oneplusn references/windows-msys-tooling.md。
 
-PM cron(2026-10-17 复核):5 职=bihourly `0 */2 * * *`、daily-evening `0 15 * * *`(deliver=feishu)、task-polling `15,45`、config-backup `0 20`、memory-cleanup `0 21`(deliver=local)。重大事件:9-14 15:42 CST 网关 UNCLEANLY 死亡→10-15 02:49 重启补发,~31d cron 停摆;前置 9-13/9-14 zai 429 周月配额型击落 3 报告职(重置点 9-16 未等到网关已死)。重启后 5 职全恢复:bihourly/daily 已于 10-16 槽位自愈(实证全 ok)。429 瞬时型自愈、配额型可击落整 fire。双小时报告只观察不干预。
+PM cron(2026-10-21 复核):5 职=bihourly `0 */2`、daily-evening `0 15`(feishu)、task-polling `15,45`、config-backup `0 20`、memory-cleanup `0 21`(local)。事件史:9-13/9-14 zai 429 配额型击落 3 报告职→9-14 网关 UNCLEANLY 死亡~31d→10-15 02:49 重启补发,5 职全恢复(bihourly/daily 10-16 槽位自愈实证)。10-18..20 429 配额型再击落 memory-cleanup 3 fire(重置点 10-21 12:03,当晚 21:00 槽位自愈=本 fire 实证;其余 4 职 last=ok 未受击)。429 瞬时型自愈、配额型可击落整 fire。双小时报告只观察不干预。

@@ -9,15 +9,15 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-Latest run: **2026-10-17 (21:00 CST 常规槽位)** — no-op sweep (cutoff 2026-09-17, 无可归档条目) + 3 处确认性日期刷新 (Python/凭据/PM cron, 零实质修正) + Hindsight reflect 跳过 (外部服务器 :8888 积极拒绝, 签名稳定)。
+Latest run: **2026-10-21 (21:00 CST 常规槽位)** — no-op sweep (cutoff 2026-09-21, 无可归档条目) + 2 处确认性日期刷新 (Python/凭据) + 1 处实质更新 (PM cron 条目: 10-18..20 429 配额型击落 3 fire) + Hindsight reflect 跳过 (:8888 积极拒绝, 缺席签名稳定)。
 >
 >
-> Hindsight status this cycle: 2026-10-17 13:02 UTC 探测 — venv 仅 hindsight_client 0.9.0
+> Hindsight status this cycle: 2026-10-21 13:01 UTC 探测 — venv 仅 hindsight_client 0.9.0
 > (v0.20.x 架构, 无内嵌 daemon 包); :8888 socket+HTTP 双层实探 WinError 10061 积极拒绝
-> (:9807 legacy 亦无); ~/.hindsight 日志冻结 2026-08-07 (~71d 零新签名)。
+> (:9807 legacy 亦无); ~/.hindsight 日志冻结 2026-08-07 (~75d 零新签名)。
 > remediation: (A) 部署外部 Hindsight server → client.reflect()
 > (B) memory.provider 移出 hindsight (C) markdown-only。
-> 签名与既往各次一致 (稳定缺席, 非演变)。
+> 既成 (C) markdown-only, 无需老板决策。
 
 ## 2026-06-03 — Toolset state snapshot
 
@@ -421,4 +421,13 @@ trusting this trick.
   - 写入规范: 全部 tmp+os.replace; 条目 0 缩进同级插于唯一尾部 reminder 之前 (list.insert 独立元素, 显式行边界); 头部 Latest run + Hindsight 段 + 尾部 reminder 重写为仅含本 fire 事实。
   - Char counts: MEMORY.md 1929/2200 (仅日期刷新, 净变 0); USER.md 未动 1075/1375 (盘上 1392B)。
 
-- Next scheduled cleanup: 按 cron 节奏 (下次 2026-10-18 21:00 CST)。最近一次 = **2026-10-17 21:00 CST 常规槽位** — no-op sweep、3 处确认性刷新、Hindsight 缺席签名稳定 (详见上方当日条目)。
+- 2026-10-21 — 21:00 CST 常规槽位: no-op sweep (cutoff 2026-09-21, 无可归档条目) + 2 处确认性日期刷新 (Python/凭据) + 1 处实质更新 (PM cron 条目 429 事件) + Hindsight 有界尝试 (缺席签名稳定)。
+  - Survey: MEMORY.md §-分隔 6 块; 内嵌日期最新 2026-10-21 (本次刷新); 2026-07-09/2026-08-16 属条目内历史注脚, 09-13/09-14/09-15/09-16 属 cron 条目内事件注记 → 无可归档条目。USER.md 按规则未动 (mtime 2026-07-14, 永恒内容)。
+  - 429 击落取证 (本次新事实, PM cron 条目实质更新依据): 10-18/19/20 三日 fire 输出均 103820B — 与 2026-09-13 (已知 429 击落日) 完全同尺寸 = 纯 prompt 信封无 LLM 响应; jobs.json last_error 明示 "每周/月使用上限, 限额 2026-10-21 12:03:17 重置"; 归档 mtime 冻结 10-17 → 本 fire 为配额重置后首个成功槽位。其余 4 职 last=ok 未受击。
+  - 事实复核: .env 逐行核实 (纠正初测撞模板注释行的误判) — MINIMAX_CN_API_KEY ACTIVE(set)/GITHUB_TOKEN ACTIVE(set)/HF_TOKEN 仅注释模板无 ACTIVE 行, 与凭据条目一致 → 日期 10-17→10-21; python 3.11.15 复测同值; 3 profile 目录 + USAGE.md(hermes 根, 15923B) + kanban.dispatch_in_gateway=true 相符。
+  - Pre-flight: 0 个 memories/*.lock。三态存活: agent.log 0m (本 fire) / errors.log 15m / gateway.log 9672m 停更 → gateway 存活 (gateway.log 沉默为日志伪象, 沿 2026-07-19 tri-state 规则; 本 fire 即网关活证)。
+  - Hindsight (prompt 指定调用 → 有界尝试): v0.20.x 架构 — venv 仅 hindsight_client 0.9.0 (无内嵌 daemon 包), :8888 socket+HTTP(urllib) 双层实探 WinError 10061 积极拒绝, :9807 legacy 亦无; ~/.hindsight 双日志冻结 2026-08-07 (~75d 零新签名 → 非演变, 无重排触发) → reflect() 跳过, markdown 权威。remediation (A) 外部 server / (B) 切 provider / (C) markdown-only 不变, 既成 (C)。
+  - 写入规范: 全部 tmp+os.replace; 条目 0 缩进同级插于唯一尾部 reminder 之前 (list.insert 独立元素, 显式行边界); 头部 Latest run + Hindsight 段 + 尾部 reminder 重写为仅含本 fire 事实。
+  - Char counts: MEMORY.md 1949/2200 (净增 20 字符, PM cron 条目扩写); USER.md 未动 1075/1375 (盘上 1392B)。
+
+- Next scheduled cleanup: 按 cron 节奏 (下次 2026-10-22 21:00 CST)。最近一次 = **2026-10-21 21:00 CST 常规槽位** — no-op sweep、PM cron 条目 429 事件更新、Hindsight 缺席签名稳定 (详见上方当日条目)。
