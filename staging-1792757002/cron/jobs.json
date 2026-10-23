@@ -1,0 +1,220 @@
+{
+  "jobs": [
+    {
+      "id": "cef7e567ee17",
+      "name": "oneplusn-PM-task-polling",
+      "prompt": "你是 PM 上岗员工 GitHub=@?,profile=handsome_company_manager。\n工作目录:D:\\onboarding\\handsome-s-company。\n仓库:handsome-s-company/agent_workflow。\n凭据:.env 已配 GITHUB_TOKEN(GH CLI 也可用)。\nSOUL/RULES 在 profile 目录下,自动加载。\n--- 任务 ---\n轮询分配给你的 GitHub Issue:扫描 assignee 为自己的 open issue,\n对有新反馈的逐个处理;没有任务则静默退出,不发送任何通知。\ntarget_system: hermes cron (LLM-driven,自然语言 prompt)",
+      "skills": [
+        "oneplusn"
+      ],
+      "skill": "oneplusn",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "15,45 * * * *",
+        "display": "15,45 * * * *"
+      },
+      "schedule_display": "15,45 * * * *",
+      "repeat": {
+        "times": null,
+        "completed": 2629
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-07-12T21:38:50.188451+08:00",
+      "next_run_at": "2026-10-23T20:15:00+08:00",
+      "last_run_at": "2026-10-23T19:48:04.769275+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "local",
+      "origin": null,
+      "enabled_toolsets": null,
+      "workdir": "D:\\onboarding\\handsome-s-company",
+      "profile": null,
+      "fire_claim": null
+    },
+    {
+      "id": "74ebd0a04527",
+      "name": "oneplusn-PM-config-backup",
+      "prompt": "你是 PM 上岗员工 GitHub=@?,profile=handsome_company_manager。\n工作目录:D:\\onboarding\\handsome-s-company。\n仓库:handsome-s-company/agent_workflow。\n凭据:.env 已配 GITHUB_TOKEN(GH CLI 也可用)。\nSOUL/RULES 在 profile 目录下,自动加载。\n--- 任务 ---\n备份 Hermes 配置到 GitHub 仓库 hermes-config/handsome_company_manager/,\n排除 .env 等敏感文件,完成后 commit 并 push。回复备份结果\n(成功/失败 + 备份了哪些文件)。",
+      "skills": [
+        "oneplusn"
+      ],
+      "skill": "oneplusn",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 20 * * *",
+        "display": "0 20 * * *"
+      },
+      "schedule_display": "0 20 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 60
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-07-12T21:38:50.647582+08:00",
+      "next_run_at": "2026-10-24T20:00:00+08:00",
+      "last_run_at": "2026-10-22T20:02:20.255351+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "local",
+      "origin": null,
+      "enabled_toolsets": null,
+      "workdir": "D:\\onboarding\\handsome-s-company",
+      "profile": null,
+      "fire_claim": null
+    },
+    {
+      "id": "996743153888",
+      "name": "oneplusn-PM-memory-cleanup",
+      "prompt": "你是 PM 上岗员工 GitHub=@?,profile=handsome_company_manager。\n工作目录:D:\\onboarding\\handsome-s-company。\n仓库:handsome-s-company/agent_workflow。\n凭据:.env 已配 GITHUB_TOKEN(GH CLI 也可用)。\nSOUL/RULES 在 profile 目录下,自动加载。\n--- 任务 ---\n清理你的记忆:归档 30 天前的旧记忆;若安装了 hindsight,\n调用其优化能力做高级整理。",
+      "skills": [
+        "oneplusn"
+      ],
+      "skill": "oneplusn",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 21 * * *",
+        "display": "0 21 * * *"
+      },
+      "schedule_display": "0 21 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 59
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-07-12T21:38:51.108246+08:00",
+      "next_run_at": "2026-10-23T21:00:00+08:00",
+      "last_run_at": "2026-10-22T21:04:53.278473+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "local",
+      "origin": null,
+      "enabled_toolsets": null,
+      "workdir": "D:\\onboarding\\handsome-s-company",
+      "profile": null,
+      "fire_claim": null
+    },
+    {
+      "id": "d26c66fbbdd0",
+      "name": "pm-bihourly-status-report",
+      "prompt": "你是 PM @Handsome-Manager,每 2 小时主动给老板交付一次项目状态报告。这是第 N 期(从当前时间计数)。\n\n## 数据采集(必须实际跑,不要凭印象)\n\n依次跑这些命令拉真实数据:\n```bash\ncd /d/onboarding/handsome-s-company\n\n# 1. 所有 Issues(#6-17 范围)状态\ngh issue list --repo handsome-s-company/agent_workflow --state all --json number,title,state,assignees,labels,comments,updatedAt 2>&1 | head -200\n\n# 2. 所有 PRs 状态\ngh pr list --repo handsome-s-company/agent_workflow --state all --json number,title,state,mergedAt,additions,author 2>&1 | head -100\n\n# 3. 最近 2 小时 commits\ngit log --since=\"2 hours ago\" --pretty=format:\"%h | %ai | %an | %s\" 2>&1 | head -30\n\n# 4. 最近 2 小时 Issue / PR 评论(关键信号 — 看谁在动)\ngh api -H \"Accept: application/vnd.github+json\" /repos/handsome-s-company/agent_workflow/issues/comments --jq '.[] | select(.created_at >= \"<2h ago>\") | \"[\\(.created_at)] \\(.user.login): \\(.body[0:60])\"' 2>&1 | head -30\n```\n\n## 报告模板(严格按此格式输出)\n\n```markdown\n# 📊 PM 双小时状态报告 #N(YYYY-MM-DD HH:MM UTC)\n\n## 0. 一页速读\n\n| 类别 | 健康度 | 关键事实 |\n|---|---|---|\n| 整体项目 | 🟢/🟡/🔴 | 一句话总结 |\n| Loop Engineering 主线 | 🟢/🟡/🔴 | USD cap / scratchpad / verifier / PoC / 6 铁规 各自状态 |\n| Snake 实战 | 🟢/🟡/🔴 | 设计拍板 / 实施 / 验证 |\n\n## 1. 进度矩阵(Issue / PR)\n\n| # | 标题 | 类型 | 状态 | assignee | 关键 |\n|---|---|---|---|---|---|\n\n## 2. 红黄绿灯风险\n\n| 风险项 | 等级 | 详情 |\n|---|---|---|\n| ... | 🟢/🟡/🔴 | ... |\n\n## 3. 每人贡献(本期 2h)\n\n| 角色 | 账号 | 本期完成 | 本期动作 | 摸鱼信号 |\n|---|---|---|---|---|\n| 🛠 dev | handsome-hudeveloper | ... | commits / 评论 / PR | 0 = 摸鱼,3+ = 良好 |\n| 🔍 reviewer | Handsome-Review | ... | 同上 | 同上 |\n| 🐑 PM | 你(我) | ... | 派单 / 拍板 / 报告 | — |\n\n## 4. 下次触发(2h 后到下次报告)\n\n| 时点 | 期望事件 |\n|---|---|\n\n## 5. 我观察到的洞察(PM 视角,1-3 句)\n\n## 6. 不需要老板操作(除非标 🔴)\n```\n\n## 强约束\n\n1. **不要凭印象** — 所有数据来自实际命令输出\n2. **不要越俎** — 不替你团队写代码 / 不合 PR / 不关 Issue / 不改 PR 评论\n3. **不要编造** — 如果拉不出数据,明说\"未能拉取\"\n4. **投递**:这是 cron 跑,final response 会被自动投递到 Feishu home channel。**直接 final response 就是报告本身**(系统自动处理)\n5. **要简洁** — 总长控制在 1500 字以内,老板爱读小报不爱读长文\n6. **摸鱼信号** — dev / reviewer 在 2h 内 0 commit 0 评论 0 PR action = 标\"无活动,待观察\";连续 2 期 0 活动 = 标\"🔴 摸鱼嫌疑\"\n7. **风险等级** — 红:阻塞交付 / 黄:进度慢但有推进 / 绿:健康\n\n## 行为底线\n\n- ✅ 拉数据 → 整理 → 输出报告\n- ❌ 不修改任何代码 / 配置 / Issue / PR\n- ❌ 不主动 @ 任何人催活(本任务纯观察 + 报告)\n\n跑完后用一句话结尾说明第 N 期完成。",
+      "skills": [
+        "oneplusn"
+      ],
+      "skill": "oneplusn",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 */2 * * *",
+        "display": "0 */2 * * *"
+      },
+      "schedule_display": "0 */2 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 640
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-07-14T16:09:46.662783+08:00",
+      "next_run_at": "2026-10-23T22:00:00+08:00",
+      "last_run_at": "2026-10-23T18:04:58.000272+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "feishu",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_7fc21bb2aef66f4fc4f0c0fd7112b8fe",
+        "chat_name": "oc_7fc21bb2aef66f4fc4f0c0fd7112b8fe",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": "D:\\onboarding\\handsome-s-company",
+      "profile": null,
+      "fire_claim": null
+    },
+    {
+      "id": "0cbfcf7b360e",
+      "name": "pm-daily-evening-report",
+      "prompt": "你是 PM @Handsome-Manager,每晚 23:00 CST(15:00 UTC)给老板交付一份**当日项目日报**。这是当日总结 + 当前快照 + 风险趋势 + 明日期望 + 老板决策点。比双小时报告更全面。\n\n## 数据采集(必须实际跑,不要凭印象)\n\n```bash\ncd /d/onboarding/handsome-s-company\n\n# 1. 当日 commits(本地 + 24h)\ngit log --since=\"24 hours ago\" --pretty=format:\"%h | %ai | %an | %s\" 2>&1 | head -50\n\n# 2. 当日 Issues 创建/关闭/评论\nMSYS_NO_PATHCONV=1 gh api -H \"Accept: application/vnd.github+json\" /repos/handsome-s-company/agent_workflow/issues --jq '.[] | select(.created_at >= \"<24h ago>\") | \"[\\(.state)] \\(.user.login) created #\\(.number): \\(.title[0:50])\"' 2>&1 | head -20\nMSYS_NO_PATHCONV=1 gh api -H \"Accept: application/vnd.github+json\" /repos/handsome-s-company/agent_workflow/issues?state=closed --jq '.[] | select(.closed_at >= \"<24h ago>\") | \"[\\(.state)] #\\(.number) closed by \\(.user.login): \\(.title[0:50])\"' 2>&1 | head -20\n\n# 3. 当前所有 Issue 状态(快照)\ngh issue list --repo handsome-s-company/agent_workflow --state all --json number,title,state,assignees,labels,comments,updatedAt 2>&1 | head -100\n\n# 4. PRs 状态\ngh pr list --repo handsome-s-company/agent_workflow --state all --json number,title,state,mergedAt,additions,author 2>&1 | head -50\n\n# 5. 当日评论流\nMSYS_NO_PATHCONV=1 gh api -H \"Accept: application/vnd.github+json\" /repos/handsome-s-company/agent_workflow/issues/comments --jq '.[] | select(.created_at >= \"<24h ago>\") | \"[\\(.created_at[11:16])] \\(.user.login): \\(.body[0:80])\"' 2>&1 | head -40\n```\n\n## 报告模板(严格按此)\n\n```markdown\n# 📅 PM 项目日报 — YYYY-MM-DD(CST)\n\n## 0. 今日一句话总结\n\n[≤ 100 字]\n\n## 1. 今日做了什么(24h)\n\n| 时段 | 事件 | 贡献方 |\n|---|---|---|\n| ... | ... | dev / reviewer / PM / boss |\n\n## 2. 当前快照(Issue + PR 全表)\n\n| # | 标题 | 类型 | 状态 | assignee | 关键 |\n|---|---|---|---|---|---|\n\n## 3. 红黄绿灯风险\n\n| 风险项 | 等级 | 详情 | 趋势(相比昨日) |\n|---|---|---|---|\n\n## 4. 每人当日贡献\n\n| 角色 | 账号 | commits | 评论 | PR 动作 | Issue 动作 | 综合评估 |\n|---|---|---|---|---|---|---|\n| 🛠 dev | handsome-hudeveloper | ... | ... | ... | ... | 良好 / 摸鱼嫌疑 / 离线 |\n| 🔍 reviewer | Handsome-Review | ... | ... | ... | ... | 同上 |\n| 🐑 PM | 你(我) | ... | ... | ... | ... | — |\n| 👑 boss | handsomehu80 | ... | ... | ... | ... | — |\n\n## 5. 跨日趋势(对比昨日报告)\n\n| 维度 | 昨日 | 今日 | Δ |\n|---|---|---|---|\n| Open Issue 数 | ... | ... | ... |\n| Closed Issue 数 | ... | ... | ... |\n| Open PR 数 | ... | ... | ... |\n| ... | ... | ... | ... |\n\n## 6. 明日期望触发(老板需要知道)\n\n| 时点 | 期望事件 |\n|---|---|\n| 明日 09:00 | dev 首个 cron 触发 → 应回评论 #16 snake 设计拍板 |\n| ... | ... |\n\n## 7. 老板决策点(需要你拍板)\n\n- [ ] 决策 1:...\n- [ ] 决策 2:...\n\n(或注明\"无需决策,继续推进\")\n\n## 8. 不需要老板操作(除非标 🔴)\n```\n\n## 强约束\n\n1. **不要凭印象** — 所有数据走实际命令\n2. **不要越俎** — 只观察 + 报告\n3. **不要编造** — 数据拉不到明说\n4. **摸鱼信号**:\n   - 当日 0 commits 0 评论 0 PR 0 Issue 动作 = 摸鱼嫌疑\n   - 当日有 cron 应触发但无产出 = 同上\n   - 连续 3 天摸鱼嫌疑 = 升级为 🔴\n5. **报告总长 ≤ 2500 字**\n6. **投递**:cron 自动 final response 投递到 feishu home channel\n7. **首次跑**:无昨日对比,标\"首次日报,无对比基线\"\n\n## 必填数据点\n\n- 当前时间(CST)\n- 当日 commits 数 / Issue 数 / PR 数 / 评论数\n- 每人 commit / 评论 / PR / Issue 计数\n- 风险等级分布(红 / 黄 / 绿 各几个)\n- 明日第一个 cron 触发时点(明早 dev cron = 09:00 CST = 01:00 UTC)\n\n跑完用一句话结尾:\"日报已生成,投递到 feishu home\"。",
+      "skills": [
+        "oneplusn"
+      ],
+      "skill": "oneplusn",
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": null,
+      "no_agent": false,
+      "context_from": null,
+      "schedule": {
+        "kind": "cron",
+        "expr": "0 15 * * *",
+        "display": "0 15 * * *"
+      },
+      "schedule_display": "0 15 * * *",
+      "repeat": {
+        "times": null,
+        "completed": 59
+      },
+      "enabled": true,
+      "state": "scheduled",
+      "paused_at": null,
+      "paused_reason": null,
+      "created_at": "2026-07-15T08:27:15.546848+08:00",
+      "next_run_at": "2026-10-24T15:00:00+08:00",
+      "last_run_at": "2026-10-23T15:06:02.878596+08:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "feishu",
+      "origin": {
+        "platform": "feishu",
+        "chat_id": "oc_7fc21bb2aef66f4fc4f0c0fd7112b8fe",
+        "chat_name": "oc_7fc21bb2aef66f4fc4f0c0fd7112b8fe",
+        "thread_id": null
+      },
+      "enabled_toolsets": null,
+      "workdir": "D:\\onboarding\\handsome-s-company",
+      "profile": null,
+      "fire_claim": null
+    }
+  ],
+  "updated_at": "2026-10-23T20:00:53.049153+08:00"
+}
