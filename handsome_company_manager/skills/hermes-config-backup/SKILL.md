@@ -389,6 +389,18 @@ Path("diff_push.json").write_text(json.dumps(adapted))
 ```
 Or change the script's read to use `.get("new_paths", diff.get("added", []))` for both directions.
 
+### `push_via_contents.py` derives the remote subdir from `--synced-root`'s BASENAME — a timestamped staging dir silently mis-pushes (NEW 2026-10-23)
+
+`push_via_contents.py` line ~76 does `profile_name = args.synced_root.name` and builds every API path as `f"{profile_name}/{rel}"`. The `--synced-root` basename is therefore NOT cosmetic — it IS the remote subdirectory. If you stage into a timestamped dir (e.g. `C:/Temp/hermes-backup/staging-1792757002/`, per the "timestamped path avoids locked-dir collisions" advice), every file lands under a WRONG remote path `staging-1792757002/...` and the script still reports `Success: N/N` — green status, silent corruption. Verified 2026-10-23 PM backup: 5/5 "ok" pushes landed at `staging-1792757002/*`, detected only because the post-push byte-identity check compared against `handsome_company_manager/*` and got 5× MISMATCH.
+
+**Fix pattern:** stage the final push copy so its basename is the profile name:
+```python
+work = base / f"push-{ts}" / "handsome_company_manager"   # basename = profile name
+shutil.copytree(staging_ts_dir, work)
+# then: push_via_contents.py --synced-root <work> ...
+```
+If a mis-push already happened: re-push to the correct path, then `DELETE /repos/<owner>/<repo>/contents/<wrong-dir>/<rel>` for each file (fetch its `sha` first, include `sha`+`branch` in the DELETE body), and verify the wrong dir returns 404 afterwards. Detect the mis-push EARLY by asserting the commit message path prefix before celebrating: `gh api repos/<owner>/<repo>/commits?per_page=N` — messages read `backup: <profile>/<rel>` only when the basename was right.
+
 ### Contents API retries must refresh the blob SHA — actively-written files can 409 (NEW 2026-07-20)
 
 The bundled `push_via_contents_parallel.py` retries 409s with exponential backoff — but the retry **uses the SHA fetched on the first GET**, not a fresh one. For files that change frequently (`cron/jobs.json` updates on every cron tick, `cron/output/` grows every minute, anything touched by a running gateway), the blob SHA goes stale faster than the backoff window, so every retry 409s until exhaustion.
