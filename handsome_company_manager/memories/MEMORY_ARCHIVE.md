@@ -9,14 +9,13 @@
 > the durable part back into MEMORY.md (drop the date). Do not just
 > copy old entries back in — they were archived for a reason.
 >
-Latest run: **2026-10-23 (21:00 CST 常规槽位)** — no-op sweep (cutoff 2026-09-23, 无可归档条目) + 3 处确认性日期刷新 (Python/凭据/PM cron, 自愈实证扩至三晚) + Hindsight reflect 跳过 (:8888 积极拒绝, 缺席签名同族无演变)。
+Latest run: **2026-10-28 (21:00 CST 常规槽位, 429 配额重置后首个成功槽位)** — no-op sweep (cutoff 2026-09-28, 无可归档条目) + 3 处确认性日期刷新 (Python/凭据/PM cron, PM cron 条目实质更新 429 周期证据) + Hindsight reflect 跳过 (:8888 积极拒绝, 缺席签名同族无演变)。
 >
->
-> Hindsight status this cycle: 2026-10-23 13:04 UTC 探测 — venv 仅 hindsight_client 0.9.0
-> (v0.20.x 架构, 无内嵌 daemon 包); client 构造成功, list_memories(bank_id="hermes") →
-> aiohttp ClientConnectorError "Cannot connect to host localhost:8888 [远程计算机拒绝网络连接]"
-> (积极拒绝); :9807 legacy 亦无; ~/.hindsight 日志冻结
-> 2026-08-07 (~77d 零新签名, 与 10-22 同族非演变)。
+> Hindsight status this cycle: 2026-10-28 13:01 UTC 探测 — venv 仅 hindsight_client 0.9.0
+> (v0.20.x 架构, 无内嵌 daemon 包, venv python find_spec 双探确认); client 构造成功,
+> list_memories(bank_id="hermes") → aiohttp ClientConnectorError "Cannot connect to host
+> localhost:8888 [远程计算机拒绝网络连接]" (积极拒绝); urllib HTTP 探 :8888 WinError 10061;
+> :9807 legacy 亦无; ~/.hindsight 日志冻结 2026-08-07 (~82d 零新签名, 与 10-21..23 同族非演变)。
 > remediation: (A) 部署外部 Hindsight server → client.reflect()
 > (B) memory.provider 移出 hindsight (C) markdown-only。
 > 既成 (C) markdown-only, 无需老板决策。
@@ -373,7 +372,7 @@ trusting this trick.
 - 2026-09-09 — 21:00 CST 计划触发: no-op sweep (cutoff 2026-08-10, 无可归档条目; 最旧活动条目内部日期 8-16) + 1 处证据支撑修正 (Python 3.11.9→3.11.15, python/hermes --version 双源) + PM cron 条目刷新 (429 双型: 瞬时型自愈 9-03 vs 周/月配额型击落整 fire 9-08 21:00 memory-cleanup, 配额 9-09 12:03 重置后本 fire 恢复) + Hindsight 8888 稳定拒连 (ConnectionRefused 10061 ×3 + hindsight_client ClientConnectorError, 与 9-03 同签名非演变; ~/.hindsight 日志冻结 8-07 ~33d)。
 
 - 2026-09-10 — 21:00 CST 计划触发: no-op sweep (cutoff 2026-08-11) + 零证据修正 + Hindsight 复探 (缺席签名稳定)。
-  - Survey: MEMORY.md §-分隔 6 块; 内嵌日期最新为 2026-09-09 (PM cron 条目), 历史注记 8-16/9-02 均在窗口内 → 无可归档条目。USER.md 按规则未动。
+  - Survey: MEMORY.md 5 块 (4 个 § 分隔, 铁律与 cron 块间为空行非 §); 内嵌日期最新为 2026-09-09 (PM cron 条目), 历史注记 8-16/9-02 均在窗口内 → 无可归档条目。USER.md 按规则未动。
   - 事实复核 (零修正): jobs.json 5 职全部 last_status=ok (bihourly/daily-evening/task-polling/config-backup/memory-cleanup, 排程与活动条目逐一相符); .env 凭据三态 (MINIMAX_CN_API_KEY set、GITHUB_TOKEN set、HF_TOKEN commented out) 与 2026-09-03 凭据条目一致。
   - Pre-flight: 0 个 memories/*.lock。三态存活: agent.log 0m (本 fire) / errors.log 180m / gateway.log 1723m 停更 → gateway 存活 (gateway.log 沉默为日志伪象, 沿 2026-07-19 三态规则)。
   - Hindsight (prompt 指定调用 → 有界尝试 1 次, 0.9-2.9s 快败): socket 8888/9807 TimeoutError + hindsight_client ClientConnectorError "远程计算机拒绝网络连接"; ~/.hindsight/profiles/*.log 冻结 8-07 (~34d); v0.20.x 无嵌入式 daemon → reflect() 跳过, markdown 权威。补救菜单 (A/B/C) 不变, 无需老板决策。
@@ -450,4 +449,14 @@ trusting this trick.
   - 写入规范: 全部 tmp+os.replace; 条目 0 缩进同级插于唯一尾部 reminder 之前 (list.insert 独立元素, 显式行边界); 头部 Latest run + Hindsight 段 + 尾部 reminder 重写为仅含本 fire 事实。
   - Char counts: MEMORY.md 1946/2200 (4 处日期/措辞刷新, 净变 +1 字符); USER.md 未动 1075/1375 (盘上 1392B)。
 
-- Next scheduled cleanup: 按 cron 节奏 (下次 2026-10-24 21:00 CST)。最近一次 = **2026-10-23 21:00 CST 常规槽位** — no-op sweep、3 处确认性刷新、Hindsight 缺席签名同族 (详见上方当日条目)。
+
+- 2026-10-28 — 21:00 CST 常规槽位 (429 配额重置后首个成功槽位): no-op sweep (cutoff 2026-09-28, 无可归档条目) + 3 处确认性刷新 (Python/凭据/PM cron, PM cron 条目实质更新 429 周期证据) + Hindsight 有界尝试 (缺席签名同族, 无演变)。
+  - Survey: MEMORY.md §-分隔 6 块; 内嵌日期最新 2026-10-23 (窗口内); 2026-07-09/2026-08-16 为条目内历史注脚, 09-13..09-16/10-15/10-18..20 属 cron 条目内事件注记 → 无可归档条目。USER.md 按规则未动 (mtime 2026-07-14, 永恒内容)。
+  - 429 取证 (本次新事实, PM cron 条目实质更新依据): 10-24..10-27 连续 4 晚 fire 输出均 103820B — 与 10-18..20 击落日逐字节同尺寸, 抽验 10-26 尾部为 ## Error 429 块、无 LLM 响应; jobs.json last_error 明示 "限额将在 2026-10-28 12:03:17 重置" — 与上次重置点 10-21 12:03 恰差 7 天, 周配额坐实; 归档 housekeeping 断档 10-24..27 与击落窗口吻合, 本 fire (10-28 13:00 UTC) 为重置后首个 memory-cleanup 槽位。其余 4 职 last=ok 且今日均正常 (config-backup 20:04 CST 于重置后 ~90s 成功)。
+  - 事实复核 (零修正, 确认性刷新): PATH python 3.11.15 复测同值; .env 逐行核实 (初测撞模板注释行, 沿 10-21 同坑修正) — MINIMAX_CN_API_KEY ACTIVE(set)/GITHUB_TOKEN ACTIVE(set)/HF_TOKEN 仅注释模板 (无 ACTIVE 行), 与凭据条目一致; profiles 恰 3 目录 + USAGE.md(15923B) + kanban.dispatch_in_gateway=true 相符 → Python/凭据/PM cron 条目日期 10-23→10-28。
+  - Pre-flight: 0 个 memories/*.lock。三态存活: agent.log 0m (本 fire) / errors.log 15m / gateway.log 9669m 停更 → gateway 存活 (gateway.log 沉默为日志伪象, 沿 2026-07-19 tri-state 规则; 本 fire 即网关活证)。
+  - Hindsight (prompt 指定调用 → 有界尝试): v0.20.x 架构 — venv 仅 hindsight_client 0.9.0 (无内嵌 daemon 包); client 构造成功后 list_memories(bank_id="hermes") → aiohttp ClientConnectorError "Cannot connect to host localhost:8888 [远程计算机拒绝网络连接]" (积极拒绝, 与 10-21..23 同族, 无新签名 → 非演变, 无重排触发); urllib HTTP 探 :8888 WinError 10061 积极拒绝, :9807 legacy 亦无; ~/.hindsight 双日志冻结 2026-08-07 (~82d) → reflect() 跳过, markdown 权威。remediation (A) 外部 server / (B) 切 provider / (C) markdown-only 不变, 既成 (C), 无需老板决策。
+  - 写入规范: 全部 tmp+os.replace; 条目 0 缩进同级插于唯一尾部 reminder 之前 (显式行边界); 头部 Latest run + Hindsight 段 + 尾部 reminder 重写为仅含本 fire 事实。
+  - Char counts: MEMORY.md 1995/2200 (3 处日期刷新 + PM cron 条目 429 周期扩写, 净变 +49 字符); USER.md 未动 1075/1375 (盘上 1392B)。
+
+- Next scheduled cleanup: 按 cron 节奏 (下次 2026-10-29 21:00 CST)。最近一次 = **2026-10-28 21:00 CST 常规槽位** — no-op sweep、3 处确认性刷新 (PM cron 条目 429 周期更新)、Hindsight 缺席签名同族 (详见上方当日条目)。
